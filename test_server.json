@@ -1,0 +1,17 @@
+{
+  "action": "add",
+  "server": {
+    "name": "Tweve Cloudflare CDN Node 01",
+    "country": "US",
+    "flag": "🇺🇸",
+    "protocol": "v2ray_ws",
+    "host": "us1.twevetunnel.net",
+    "port": 443,
+    "wsPath": "/tweve-ws",
+    "wsHost": "us1.twevetunnel.net",
+    "sni": "us1.twevetunnel.net",
+    "uuid": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+    "isLocked": true,
+    "isActive": true
+  }
+}

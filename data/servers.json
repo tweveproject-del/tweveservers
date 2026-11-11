@@ -1,0 +1,22 @@
+[
+  {
+    "id": "srv_vodacom_tanzania_mwcl7lt2",
+    "name": "Vodacom Tanzania",
+    "country": "TZ",
+    "tier": "PREMIUM",
+    "protocol": "v2ray_ws",
+    "host": "tr-voda.vpn4pros.com",
+    "isLocked": true,
+    "isActive": true,
+    "createdAt": 1794429865843,
+    "updatedAt": 1794429865843,
+    "v2rayAddress": "tr-voda.vpn4pros.com",
+    "v2rayPort": 443,
+    "v2rayProtocol": "vless",
+    "v2raySecurity": "tls",
+    "v2rayUuid": "93a61219-c703-4f9e-a0e2-6dcfb4c48924",
+    "v2rayWsHost": "myvodacom.vodacom.co.tz",
+    "v2rayWsPath": "/voda-ws",
+    "v2raySni": "myvodacom.vodacom.co.tz"
+  }
+]
