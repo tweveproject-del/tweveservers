@@ -1,5 +1,6 @@
 // Invisible Google reCAPTCHA v3 (client side). No widget, no text. The badge is hidden in CSS.
-const SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '';
+const SITE_KEY =
+  process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6LdfShwuAAAAABwSHiD54knomdgdEh2l0DOpNR6Q';
 
 let loader: Promise<void> | null = null;
 

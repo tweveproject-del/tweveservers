@@ -2545,5 +2545,18 @@ input:user-invalid {
   .fleet-kpi-grid > :last-child { grid-column: 1 / -1; }
 }
 
-/* Invisible reCAPTCHA: hide the floating badge */
-.grecaptcha-badge { visibility: hidden !important; }
+/* Invisible reCAPTCHA: completely hide the floating badge, iframe & text */
+.grecaptcha-badge,
+iframe[src*="recaptcha/api2/anchor"],
+.grecaptcha-logo,
+.grecaptcha-error {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  position: fixed !important;
+  bottom: -9999px !important;
+  right: -9999px !important;
+  display: none !important;
+}
