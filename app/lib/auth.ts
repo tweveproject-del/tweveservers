@@ -1,22 +1,19 @@
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import { NextRequest } from 'next/server';
 
 const SESSION_COOKIE_NAME = 'tweve_admin_session';
 const SESSION_SECRET = process.env.TWEVE_ADMIN_SECRET || 'TweveFleet-HMAC-MasterSecret-2026-v1-ObsidianKey';
-const ADMINS_FILE = path.join(process.cwd(), 'data', 'admins.json');
-const CLOUD_GIST_ID = process.env.TWEVE_GIST_ID || '54ff3427b094f3765f2743b460b311b0';
 
 const FIREBASE_RTDB_URL = 'https://tunnel-7a4c7-default-rtdb.firebaseio.com';
 const FIREBASE_PROJECT_ID = 'tunnel-7a4c7';
 
-// Firebase Web API keys across user's Firebase projects so Email/Password users added in Firebase Auth work automatically
+// Firebase Web API keys across user's Firebase projects so Email/Password users added manually in Firebase Console -> Authentication work automatically
 const FIREBASE_AUTH_API_KEYS = [
   'AIzaSyDnXO7VUNGqIkuS3sy3geYtLfe8w95oHOE', // tunnel-7a4c7 (Tunnel)
   'AIzaSyAsphLedQBbuBmD2rWlhGfkQGLostyU3hw', // twevetech
   'AIzaSyDTPyOA-yjAycPQgRfBdCuMRQliYXaHuXQ', // tweve-play
   'AIzaSyAwPeois-p2ldPgmyqDPT2kU6gHDJWD1y0', // tweve-stream
+  'AIzaSyBGriR29Q8ANkuhzEbtaF6x-wAO94o1tqc', // elimika-6e8d9
 ];
 
 const SA_XOR_KEY = 'TweveFirebaseFleetKey2026';
@@ -29,7 +26,6 @@ export interface AdminAccount {
   password?: string;
   role?: string;
   source?: string;
-  createdAt?: string;
 }
 
 let cachedFirebaseToken: { token: string; expiresAt: number } | null = null;
@@ -95,20 +91,10 @@ export async function getFirebaseAccessToken(): Promise<string | null> {
   return null;
 }
 
-function getCloudToken(): string {
-  if (process.env.TWEVE_GITHUB_TOKEN) return process.env.TWEVE_GITHUB_TOKEN;
-  const k = [
-    103, 104, 111, 95, 78, 122, 115, 117, 115, 121, 51, 80, 122, 57, 120, 74, 105, 86, 65, 89, 54,
-    80, 105, 98, 116, 112, 85, 113, 122, 103, 75, 108, 70, 52, 50, 75, 68, 72, 116, 122,
-  ];
-  return String.fromCharCode(...k);
-}
-
 /**
- * Reads all admin accounts from:
+ * Reads admin accounts strictly from live Firebase (zero local or hardcoded admins):
  * 1. Firebase Realtime Database (`tunnel-7a4c7-default-rtdb.firebaseio.com/admins.json`)
  * 2. Firebase Cloud Firestore (`projects/tunnel-7a4c7/databases/(default)/documents/admins`)
- * 3. Cloud Gist (`fleet_admins.json`) & Local `data/admins.json`
  */
 export async function readFirebaseAdmins(): Promise<AdminAccount[]> {
   const byEmail = new Map<string, AdminAccount>();
@@ -125,27 +111,9 @@ export async function readFirebaseAdmins(): Promise<AdminAccount[]> {
       password: password || existing?.password || '',
       role: String(raw.role || existing?.role || 'admin'),
       source,
-      createdAt: String(raw.createdAt || existing?.createdAt || new Date().toISOString()),
     });
   };
 
-  // 1. Read local data/admins.json first as baseline
-  try {
-    if (fs.existsSync(ADMINS_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(ADMINS_FILE, 'utf-8'));
-      if (Array.isArray(parsed.admins)) {
-        parsed.admins.forEach((a: any, idx: number) => mergeEntry(a, `admin_${idx + 1}`, 'local_db'));
-      } else if (Array.isArray(parsed.allowedEmails)) {
-        parsed.allowedEmails.forEach((em: string, idx: number) =>
-          mergeEntry({ email: em, password: '' }, `admin_${idx + 1}`, 'local_db')
-        );
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // 2. Read Firebase Realtime Database (/admins.json) & Firestore (/documents/admins)
   const fbToken = await getFirebaseAccessToken();
   if (fbToken) {
     try {
@@ -200,9 +168,9 @@ export async function readFirebaseAdmins(): Promise<AdminAccount[]> {
 }
 
 /**
- * Verifies admin login (email + password) against:
- * 1. Firebase Realtime Database (`tunnel-7a4c7-default-rtdb.firebaseio.com/admins`) & Firestore (`admins`)
- * 2. Firebase Authentication (`identitytoolkit.googleapis.com/v1/accounts:signInWithPassword`)
+ * Verifies admin login (email + password) strictly against live Firebase:
+ * 1. Firebase Authentication (`identitytoolkit.googleapis.com/v1/accounts:signInWithPassword`)
+ * 2. Firebase Realtime Database (`tunnel-7a4c7-default-rtdb.firebaseio.com/admins`) & Firestore (`admins`)
  */
 export async function verifyAdminCredentials(
   emailInput: string,
@@ -212,25 +180,13 @@ export async function verifyAdminCredentials(
   const password = String(passwordInput || '').trim();
 
   if (!email || !email.includes('@')) {
-    return { valid: false, error: 'Please enter a valid admin email address.' };
+    return { valid: false, error: 'Please enter a valid email address.' };
   }
   if (!password) {
-    return { valid: false, error: 'Please enter your admin password.' };
+    return { valid: false, error: 'Please enter your password.' };
   }
 
-  // 1. Check Firebase Realtime Database & Firestore /admins records
-  const admins = await readFirebaseAdmins();
-  const matchedDbAdmin = admins.find((a) => a.email.toLowerCase() === email);
-  if (matchedDbAdmin && matchedDbAdmin.password && matchedDbAdmin.password === password) {
-    return {
-      valid: true,
-      email: matchedDbAdmin.email,
-      role: matchedDbAdmin.role || 'admin',
-      authSource: matchedDbAdmin.source || 'firebase_rtdb',
-    };
-  }
-
-  // 2. Check Firebase Authentication (Email/Password) across user's Firebase projects
+  // 1. Check Firebase Authentication (Email/Password users added manually in Firebase Console -> Authentication)
   for (const apiKey of FIREBASE_AUTH_API_KEYS) {
     try {
       const res = await fetch(
@@ -252,7 +208,7 @@ export async function verifyAdminCredentials(
           return {
             valid: true,
             email: String(data.email || email).toLowerCase(),
-            role: 'firebase_auth_admin',
+            role: 'admin',
             authSource: 'firebase_auth',
           };
         }
@@ -262,164 +218,22 @@ export async function verifyAdminCredentials(
     }
   }
 
-  if (matchedDbAdmin) {
+  // 2. Check Firebase Realtime Database & Firestore /admins records added manually in Firebase Console
+  const admins = await readFirebaseAdmins();
+  const matchedDbAdmin = admins.find((a) => a.email.toLowerCase() === email);
+  if (matchedDbAdmin && matchedDbAdmin.password && matchedDbAdmin.password === password) {
     return {
-      valid: false,
-      error: 'Invalid password for this Firebase admin account.',
+      valid: true,
+      email: matchedDbAdmin.email,
+      role: matchedDbAdmin.role || 'admin',
+      authSource: matchedDbAdmin.source || 'firebase_rtdb',
     };
   }
 
   return {
     valid: false,
-    error: 'Access Denied: Email & password not found in Firebase Admin Database or Firebase Auth.',
+    error: 'Invalid email or password.',
   };
-}
-
-/**
- * Adds or updates an admin (email + password) in Firebase Realtime Database, Firestore, Cloud Gist, and Local DB.
- */
-export async function upsertFirebaseAdmin(
-  emailInput: string,
-  passwordInput: string,
-  roleInput: string = 'admin'
-): Promise<AdminAccount[]> {
-  const email = emailInput.trim().toLowerCase();
-  const password = passwordInput.trim();
-  const current = await readFirebaseAdmins();
-
-  const existingIdx = current.findIndex((a) => a.email === email);
-  const id =
-    existingIdx >= 0
-      ? current[existingIdx].id
-      : `admin_${email.replace(/[^a-z0-9]/g, '_').slice(0, 24)}`;
-
-  const record: AdminAccount = {
-    id,
-    email,
-    password,
-    role: roleInput,
-    source: 'firebase_rtdb',
-    createdAt: existingIdx >= 0 ? current[existingIdx].createdAt : new Date().toISOString(),
-  };
-
-  if (existingIdx >= 0) {
-    current[existingIdx] = record;
-  } else {
-    current.push(record);
-  }
-
-  await persistAdminsList(current);
-  return current;
-}
-
-/**
- * Removes an admin account from Firebase Realtime Database, Firestore, Cloud Gist, and Local DB.
- */
-export async function removeFirebaseAdminByEmail(emailInput: string): Promise<AdminAccount[]> {
-  const target = emailInput.trim().toLowerCase();
-  const current = await readFirebaseAdmins();
-  if (current.length <= 1) {
-    throw new Error('Cannot remove the last remaining Firebase admin account.');
-  }
-  const removed = current.find((a) => a.email === target);
-  const filtered = current.filter((a) => a.email !== target);
-
-  await persistAdminsList(filtered, removed?.id);
-  return filtered;
-}
-
-async function persistAdminsList(admins: AdminAccount[], deletedId?: string): Promise<void> {
-  // 1. Write to Firebase Realtime Database (/admins.json) & Firestore (/documents/admins)
-  const fbToken = await getFirebaseAccessToken();
-  if (fbToken) {
-    const rtdbMap: Record<string, any> = {};
-    admins.forEach((a, idx) => {
-      const key = a.id || `admin_${idx + 1}`;
-      rtdbMap[key] = {
-        email: a.email,
-        password: a.password || '',
-        role: a.role || 'admin',
-        createdAt: a.createdAt || new Date().toISOString(),
-      };
-    });
-
-    try {
-      await fetch(`${FIREBASE_RTDB_URL}/admins.json?access_token=${fbToken}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rtdbMap),
-      });
-    } catch {
-      // ignore
-    }
-
-    try {
-      for (const a of admins) {
-        const docId = a.id || `admin_${a.email.replace(/[^a-z0-9]/g, '_')}`;
-        await fetch(
-          `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/admins/${encodeURIComponent(docId)}`,
-          {
-            method: 'PATCH',
-            headers: {
-              Authorization: `Bearer ${fbToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              fields: {
-                email: { stringValue: a.email },
-                password: { stringValue: a.password || '' },
-                role: { stringValue: a.role || 'admin' },
-              },
-            }),
-          }
-        );
-      }
-      if (deletedId) {
-        await fetch(
-          `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/admins/${encodeURIComponent(deletedId)}`,
-          {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${fbToken}` },
-          }
-        );
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // 2. Write to local data/admins.json
-  try {
-    const dir = path.dirname(ADMINS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify({ admins }, null, 2), 'utf-8');
-  } catch {
-    // ignore on read-only serverless FS
-  }
-
-  // 3. Backup to Cloud Gist
-  const gistToken = getCloudToken();
-  if (gistToken && CLOUD_GIST_ID) {
-    try {
-      await fetch(`https://api.github.com/gists/${CLOUD_GIST_ID}`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${gistToken}`,
-          Accept: 'application/vnd.github+json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          files: {
-            'fleet_admins.json': {
-              content: JSON.stringify({ admins }, null, 2),
-            },
-          },
-        }),
-      });
-    } catch {
-      // ignore
-    }
-  }
 }
 
 /**

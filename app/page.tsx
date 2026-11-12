@@ -202,12 +202,6 @@ export default function TweveServerFleetAdmin() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  const [adminsList, setAdminsList] = useState<AdminRecord[]>([]);
-  const [showAdminDbPanel, setShowAdminDbPanel] = useState(false);
-  const [newAdminEmailInput, setNewAdminEmailInput] = useState('');
-  const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
-  const [showAdminPasswords, setShowAdminPasswords] = useState<Record<string, boolean>>({});
-
   // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'broadcast')
   const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'broadcast'>('all');
   const [protoCategory, setProtoCategory] = useState<ProtocolCategory>('all');
@@ -325,7 +319,6 @@ export default function TweveServerFleetAdmin() {
           if (data.authenticated) {
             setIsAuthenticated(true);
             setAdminEmail(data.email || '');
-            setAdminsList(data.admins || []);
             fetchServers();
             fetchAnalytics();
             interval = setInterval(fetchAnalytics, 5000);
@@ -370,18 +363,17 @@ export default function TweveServerFleetAdmin() {
       });
       const data = await res.json();
       if (!res.ok || !data.authenticated) {
-        setLoginError(data.error || 'Access denied: Invalid Firebase email or password.');
+        setLoginError(data.error || 'Invalid email or password.');
       } else {
         setIsAuthenticated(true);
         setAdminEmail(data.email);
-        setAdminsList(data.admins || []);
         setLoginEmailInput('');
         setLoginPasswordInput('');
         fetchServers();
         fetchAnalytics();
       }
     } catch {
-      setLoginError('Network error verifying Firebase credentials.');
+      setLoginError('Network error signing in.');
     } finally {
       setLoginLoading(false);
     }
@@ -394,62 +386,6 @@ export default function TweveServerFleetAdmin() {
     setIsAuthenticated(false);
     setAdminEmail('');
     setServers([]);
-  };
-
-  const handleAddFirebaseAdmin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const targetEmail = newAdminEmailInput.trim().toLowerCase();
-    const targetPassword = newAdminPasswordInput.trim();
-    if (!targetEmail || !targetEmail.includes('@')) {
-      notify('error', 'Enter a valid email address');
-      return;
-    }
-    if (!targetPassword || targetPassword.length < 4) {
-      notify('error', 'Enter a password (at least 4 characters)');
-      return;
-    }
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'add_admin',
-          email: targetEmail,
-          password: targetPassword,
-          role: 'admin',
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.admins) {
-        setAdminsList(data.admins);
-        setNewAdminEmailInput('');
-        setNewAdminPasswordInput('');
-        notify('success', `Saved ${targetEmail} to Firebase Admin DB`);
-      } else {
-        notify('error', data.error || 'Failed to save admin');
-      }
-    } catch {
-      notify('error', 'Failed to update Firebase Admin DB');
-    }
-  };
-
-  const handleRemoveFirebaseAdmin = async (target: string) => {
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove_admin', email: target }),
-      });
-      const data = await res.json();
-      if (res.ok && data.admins) {
-        setAdminsList(data.admins);
-        notify('success', `Removed ${target} from Firebase Admin DB`);
-      } else {
-        notify('error', data.error || 'Cannot remove admin');
-      }
-    } catch {
-      notify('error', 'Failed to update Firebase Admin DB');
-    }
   };
 
   const handleLoadServerIntoForm = (s: VpnServerItem) => {
@@ -1012,18 +948,6 @@ export default function TweveServerFleetAdmin() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => setShowAdminDbPanel((v) => !v)}
-              className="btn-fleet-secondary"
-              style={{
-                borderColor: showAdminDbPanel ? '#a78bfa' : undefined,
-                background: showAdminDbPanel ? 'rgba(139, 92, 246, 0.18)' : undefined,
-              }}
-            >
-              <Database style={{ width: '0.85rem', height: '0.85rem', color: '#a78bfa' }} />
-              <span>Admins ({adminsList.length})</span>
-            </button>
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
               <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
               <span>Exit</span>
@@ -1068,129 +992,6 @@ export default function TweveServerFleetAdmin() {
               <X style={{ width: '0.95rem', height: '0.95rem' }} />
             </button>
           </div>
-        )}
-
-        {/* Firebase Admin Accounts Drawer */}
-        {showAdminDbPanel && (
-          <section
-            className="fleet-card fleet-section-pad"
-            style={{ border: '1px solid rgba(167, 139, 250, 0.45)' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Database style={{ width: '1.1rem', height: '1.1rem', color: '#a78bfa' }} />
-                  <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                    Firebase Admin Accounts (`tunnel-7a4c7` / `admins`)
-                  </h3>
-                </div>
-                <p style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                  Add or update admin email & password here or manually in Firebase Console → Realtime Database (`/admins`) / Firestore (`admins`) / Firebase Auth.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowAdminDbPanel(false)}
-                className="btn-fleet-secondary"
-                style={{ padding: '0.35rem 0.65rem' }}
-              >
-                <X style={{ width: '0.85rem', height: '0.85rem' }} />
-                <span>Close</span>
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleAddFirebaseAdmin}
-              className="fleet-form-grid-3"
-              style={{ marginTop: '1rem', alignItems: 'end' }}
-            >
-              <div>
-                <label style={{ fontSize: '0.7rem', color: '#cbd5e1', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
-                  Admin Email *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={newAdminEmailInput}
-                  onChange={(e) => setNewAdminEmailInput(e.target.value)}
-                  placeholder="admin@email.com"
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '0.7rem', color: '#cbd5e1', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
-                  Admin Password *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newAdminPasswordInput}
-                  onChange={(e) => setNewAdminPasswordInput(e.target.value)}
-                  placeholder="Enter password..."
-                  style={{ fontFamily: 'monospace' }}
-                />
-              </div>
-              <button type="submit" className="btn-fleet-primary" style={{ height: '42px' }}>
-                <PlusCircle style={{ width: '0.95rem', height: '0.95rem' }} />
-                <span>Save Admin to Firebase</span>
-              </button>
-            </form>
-
-            <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0.65rem' }}>
-              {adminsList.map((adm) => {
-                const pwVisible = showAdminPasswords[adm.email] || false;
-                return (
-                  <div
-                    key={adm.email}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '0.5rem',
-                      padding: '0.65rem 0.85rem',
-                      borderRadius: '0.8rem',
-                      backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                      border: '1px solid rgba(148, 163, 184, 0.22)',
-                      fontSize: '0.76rem',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {adm.email}
-                      </div>
-                      <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '0.15rem' }}>
-                        Password: <span style={{ color: '#34d399' }}>{pwVisible ? adm.password || '(Firebase Auth)' : '••••••••'}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowAdminPasswords((prev) => ({ ...prev, [adm.email]: !prev[adm.email] }))
-                        }
-                        style={{ color: '#38bdf8', cursor: 'pointer', padding: '0.25rem' }}
-                        aria-label={`${pwVisible ? 'Hide' : 'Show'} password for ${adm.email}`}
-                        title="Show/Hide Password"
-                      >
-                        {pwVisible ? <EyeOff style={{ width: '0.85rem', height: '0.85rem' }} /> : <Eye style={{ width: '0.85rem', height: '0.85rem' }} />}
-                      </button>
-                      {adminsList.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveFirebaseAdmin(adm.email)}
-                          style={{ color: '#fb7185', cursor: 'pointer', padding: '0.25rem' }}
-                          aria-label={`Delete admin ${adm.email}`}
-                          title="Delete Admin from Firebase"
-                        >
-                          <Trash2 style={{ width: '0.85rem', height: '0.85rem' }} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
         )}
 
         {/* Real-time Fleet Telemetry Bar (2x2 on Phone/Tablet, 4-col on PC) */}
