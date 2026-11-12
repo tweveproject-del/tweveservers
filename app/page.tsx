@@ -251,7 +251,7 @@ export default function TweveServerFleetAdmin() {
   const [loginLockedUntil, setLoginLockedUntil] = useState<number>(0);
 
   // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast')
-  const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'payments' | 'broadcast'>('all');
+  const [mobileViewTab, setMobileViewTab] = useState<'fleet' | 'deploy' | 'payments' | 'broadcast' | 'telemetry'>('fleet');
   const [protoCategory, setProtoCategory] = useState<ProtocolCategory>('all');
   const [fleetSearch, setFleetSearch] = useState('');
 
@@ -1137,6 +1137,26 @@ export default function TweveServerFleetAdmin() {
     }
   };
 
+  const handleDeleteAnnouncement = async () => {
+    if (!confirm('Are you sure you want to delete and clear the active broadcast announcement? Client apps will no longer see any announcement.')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/servers', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ announcement: '' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAnnouncement('');
+        notify('success', 'Active announcement deleted and cleared from all client apps!');
+      }
+    } catch {
+      notify('error', 'Failed to delete announcement');
+    }
+  };
+
   const copyApkEndpoint = () => {
     const url = `${window.location.origin}/api/servers?format=apk`;
     navigator.clipboard.writeText(url);
@@ -1203,19 +1223,7 @@ export default function TweveServerFleetAdmin() {
     );
   }
 
-  if (!isAuthenticated || publicMode === 'store') {
-    const selectedStoreServer =
-      storeServers.find((s) => s.id === selectedStoreServerId) || storeServers[0] || null;
-    const serverPackages: Array<{ id: '7d' | '30d'; label: string; days: number; priceTzs: number }> =
-      selectedStoreServer?.packages && selectedStoreServer.packages.length > 0
-        ? selectedStoreServer.packages
-        : [
-          { id: '7d', label: '7 Days', days: 7, priceTzs: 2700 },
-          { id: '30d', label: '30 Days (1 Month)', days: 30, priceTzs: 8500 },
-        ];
-    const activePkg =
-      serverPackages.find((p) => p.id === selectedPackageId) || serverPackages[0];
-
+  if (!isAuthenticated) {
     return (
       <div
         style={{
@@ -1227,547 +1235,149 @@ export default function TweveServerFleetAdmin() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'flex-start',
-          padding: '1.25rem 1rem 3rem',
+          justifyContent: 'center',
+          padding: '1.25rem 1rem',
         }}
       >
-        {/* Top Mode Switcher: Buy Premium Server vs Admin Login */}
         <div
+          className="fleet-card"
           style={{
-            display: 'flex',
-            gap: '0.45rem',
-            padding: '0.32rem',
-            borderRadius: '0.85rem',
-            backgroundColor: 'rgba(15, 23, 42, 0.85)',
-            border: '1px solid rgba(56, 189, 248, 0.22)',
-            marginBottom: '1.25rem',
+            width: '100%',
+            maxWidth: '430px',
+            padding: '2rem 1.65rem',
           }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              setPublicMode('store');
-              fetchStoreCatalog();
-            }}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.65rem',
-              fontSize: '0.76rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              background:
-                publicMode === 'store'
-                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                  : 'transparent',
-              color: publicMode === 'store' ? '#ffffff' : '#94a3b8',
-              border: 'none',
-            }}
-          >
-            💎 Buy Premium Server
-          </button>
-          <button
-            type="button"
-            onClick={() => setPublicMode('admin')}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.65rem',
-              fontSize: '0.76rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              background:
-                publicMode === 'admin'
-                  ? 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)'
-                  : 'transparent',
-              color: publicMode === 'admin' ? '#ffffff' : '#94a3b8',
-              border: 'none',
-            }}
-          >
-            {isAuthenticated ? '⚙️ Back to Admin Console' : '🔒 Admin Login'}
-          </button>
-        </div>
-
-        {publicMode === 'store' ? (
-          <div
-            style={{
-              width: '100%',
-              maxWidth: '720px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1.15rem',
-            }}
-          >
-            <div className="fleet-card" style={{ padding: '1.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.15rem' }}>
-                <div>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.65rem', borderRadius: '9999px', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#34d399', fontSize: '0.68rem', fontWeight: 800, marginBottom: '0.45rem' }}>
-                    <Zap style={{ width: '0.75rem', height: '0.75rem' }} />
-                    <span>INSTANT MOBILE MONEY ACTIVATION · PRESSOPAY</span>
-                  </div>
-                  <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff' }}>
-                    Buy Tweve Premium VPN Server Package
-                  </h1>
-                  <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                    Choose your server and duration package below. Pay securely via M-Pesa, Tigo Pesa / Mixx by Yas, Airtel Money, or Halopesa.
-                  </p>
-                </div>
-              </div>
-
-              {/* Active Order Status / Completed Key Banner */}
-              {activeOrder && (
-                <div
-                  style={{
-                    marginBottom: '1.25rem',
-                    padding: '1.1rem',
-                    borderRadius: '0.9rem',
-                    backgroundColor:
-                      activeOrder.status === 'COMPLETED'
-                        ? 'rgba(16, 185, 129, 0.16)'
-                        : activeOrder.status === 'FAILED' || activeOrder.status === 'CANCELLED'
-                          ? 'rgba(244, 63, 94, 0.15)'
-                          : 'rgba(56, 189, 248, 0.14)',
-                    border:
-                      activeOrder.status === 'COMPLETED'
-                        ? '1.5px solid #10b981'
-                        : activeOrder.status === 'FAILED' || activeOrder.status === 'CANCELLED'
-                          ? '1.5px solid #f43f5e'
-                          : '1.5px solid #38bdf8',
-                  }}
-                >
-                  {activeOrder.status === 'COMPLETED' ? (
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#34d399', fontWeight: 800, fontSize: '0.92rem' }}>
-                        <CheckCircle2 style={{ width: '1.15rem', height: '1.15rem' }} />
-                        <span>Payment Verified! Your Premium Server Access Key is Ready:</span>
-                      </div>
-                      <div
-                        style={{
-                          marginTop: '0.75rem',
-                          padding: '0.85rem 1rem',
-                          borderRadius: '0.75rem',
-                          backgroundColor: '#020617',
-                          border: '1px solid rgba(16, 185, 129, 0.45)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '0.75rem',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <code style={{ fontSize: '1.15rem', fontWeight: 800, color: '#34d399', letterSpacing: '0.06em' }}>
-                          {activeOrder.subscriptionKey}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(activeOrder.subscriptionKey || '');
-                            notify('success', 'Copied Access Key!');
-                          }}
-                          className="btn-fleet-primary"
-                          style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem' }}
-                        >
-                          <Copy style={{ width: '0.85rem', height: '0.85rem' }} />
-                          <span>Copy Key</span>
-                        </button>
-                      </div>
-                      <div style={{ marginTop: '0.55rem', fontSize: '0.74rem', color: '#cbd5e1' }}>
-                        Server: <strong>{activeOrder.serverName}</strong> • Package: <strong>{activeOrder.packageLabel}</strong> ({Number(activeOrder.amountTzs).toLocaleString()} TZS) • Open Tweve VPN App → Unlock VIP/Premium → Paste Key.
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <RefreshCw style={{ width: '0.95rem', height: '0.95rem' }} className={activeOrder.status === 'PENDING' ? 'animate-spin' : ''} />
-                          <span>
-                            {activeOrder.status === 'PENDING'
-                              ? 'USSD Push Sent! Enter your Mobile Money PIN on your phone...'
-                              : `Payment Status: ${activeOrder.status}`}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.25rem', fontFamily: 'monospace' }}>
-                          Ref: {activeOrder.pressoReference} • Amount: {Number(activeOrder.amountTzs).toLocaleString()} TZS • Auto-verifying with PressoPay...
-                        </div>
-                      </div>
-                      {activeOrder.checkoutUrl && activeOrder.status === 'PENDING' && (
-                        <a
-                          href={activeOrder.checkoutUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn-fleet-secondary"
-                          style={{ fontSize: '0.72rem', textDecoration: 'none' }}
-                        >
-                          Open Checkout Page ↗
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <form onSubmit={handleCheckoutSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-                {/* Step 1: Select Server */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-                    1. Select Premium Server ({storeServers.length} Available)
-                  </label>
-                  {storeLoading ? (
-                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', padding: '0.75rem' }}>Loading available servers...</div>
-                  ) : storeServers.length === 0 ? (
-                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', padding: '0.75rem', borderRadius: '0.75rem', background: 'rgba(15,23,42,0.7)' }}>
-                      No servers found in store yet.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.6rem' }}>
-                      {storeServers.map((srv) => {
-                        const active = selectedStoreServer?.id === srv.id;
-                        const cObj = COUNTRIES.find((c) => c.code === srv.country);
-                        const pkgs = srv.packages || [];
-                        return (
-                          <button
-                            key={srv.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedStoreServerId(srv.id);
-                              if (pkgs.length > 0 && !pkgs.some((p: any) => p.id === selectedPackageId)) {
-                                setSelectedPackageId(pkgs[0].id);
-                              }
-                            }}
-                            style={{
-                              textAlign: 'left',
-                              padding: '0.8rem',
-                              borderRadius: '0.8rem',
-                              cursor: 'pointer',
-                              background: active ? 'rgba(16, 185, 129, 0.16)' : 'rgba(15, 23, 42, 0.75)',
-                              border: active ? '1.5px solid #10b981' : '1px solid rgba(56, 189, 248, 0.18)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
-                              <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#ffffff' }}>
-                                {cObj ? cObj.flag : '🌐'} {srv.name}
-                              </span>
-                              <span style={{ fontSize: '0.62rem', fontWeight: 800, color: '#fbbf24', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(251, 191, 36, 0.15)' }}>
-                                {srv.tier}
-                              </span>
-                            </div>
-                            <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace' }}>
-                              {pkgs.map((p: any) => `${p.days}D: ${Number(p.priceTzs).toLocaleString()} TZS`).join(' • ')}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 2: Select Duration Package by Price */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-                    2. Choose Duration Package & Price (TZS)
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: serverPackages.length > 1 ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
-                    {serverPackages.map((pkg) => {
-                      const isSel = activePkg?.id === pkg.id;
-                      return (
-                        <button
-                          key={pkg.id}
-                          type="button"
-                          onClick={() => setSelectedPackageId(pkg.id)}
-                          style={{
-                            padding: '0.95rem 1rem',
-                            borderRadius: '0.85rem',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            background: isSel
-                              ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.18))'
-                              : 'rgba(15, 23, 42, 0.8)',
-                            border: isSel ? '2px solid #10b981' : '1px solid rgba(56, 189, 248, 0.2)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#ffffff' }}>
-                              {pkg.label}
-                            </span>
-                            {pkg.id === '30d' && (
-                              <span style={{ fontSize: '0.62rem', fontWeight: 800, padding: '0.12rem 0.45rem', borderRadius: '9999px', background: 'rgba(251, 191, 36, 0.2)', color: '#fcd34d' }}>
-                                BEST VALUE
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ marginTop: '0.35rem', fontSize: '1.3rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
-                            {Number(pkg.priceTzs).toLocaleString()} TZS
-                          </div>
-                          <div style={{ marginTop: '0.15rem', fontSize: '0.68rem', color: '#94a3b8' }}>
-                            Full high-speed access for {pkg.days} days
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Step 3: Mobile Money Phone Number */}
-                <div className="fleet-form-grid">
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
-                      3. Mobile Money Phone Number (TZ) *
-                    </label>
-                    <input
-                      type="tel"
-                      required
-                      value={buyerPhone}
-                      onChange={(e) => setBuyerPhone(e.target.value)}
-                      placeholder="07XXXXXXXX or 06XXXXXXXX"
-                      style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
-                      Your Name (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={buyerName}
-                      onChange={(e) => setBuyerName(e.target.value)}
-                      placeholder="e.g. Juma"
-                    />
-                  </div>
-                </div>
-
-                {checkoutError && (
-                  <div style={{ padding: '0.75rem 0.9rem', borderRadius: '0.75rem', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#fda4af', fontSize: '0.78rem', fontWeight: 600 }}>
-                    {checkoutError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={checkoutLoading || !selectedStoreServer}
-                  className="btn-fleet-primary"
-                  style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '0.88rem' }}
-                >
-                  <Zap style={{ width: '1.05rem', height: '1.05rem' }} />
-                  <span>
-                    {checkoutLoading
-                      ? 'Sending USSD Push via PressoPay...'
-                      : `Pay ${Number(activePkg?.priceTzs || 0).toLocaleString()} TZS for ${activePkg?.label || 'Package'}`}
-                  </span>
-                </button>
-              </form>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.5rem' }}>
+            <div
+              style={{
+                width: '3.4rem',
+                height: '3.4rem',
+                borderRadius: '1rem',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
+                border: '1px solid rgba(16, 185, 129, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '0.9rem',
+                boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
+              }}
+            >
+              <Lock style={{ width: '1.55rem', height: '1.55rem', color: '#34d399' }} />
             </div>
-
-            {/* Lookup Existing Access Key by Phone or Key */}
-            <div className="fleet-card" style={{ padding: '1.25rem 1.5rem' }}>
-              <h3 style={{ fontSize: '0.92rem', fontWeight: 800, color: '#ffffff' }}>
-                🔑 Recover / Check Existing Access Key
-              </h3>
-              <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.15rem', marginBottom: '0.75rem' }}>
-                Already paid? Enter your phone number (07XXXXXXXX) or Access Key (TWV-XXXX-XXXX-XXXX) to view your active subscription.
-              </p>
-              <form onSubmit={handleLookupSubscriptions} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <input
-                  type="text"
-                  value={lookupInput}
-                  onChange={(e) => setLookupInput(e.target.value)}
-                  placeholder="Enter phone (07XXXXXXXX) or TWV-XXXX-XXXX-XXXX..."
-                  style={{ flex: 1, minWidth: '220px', fontFamily: 'monospace' }}
-                />
-                <button type="submit" disabled={lookupLoading} className="btn-fleet-secondary">
-                  <Search style={{ width: '0.85rem', height: '0.85rem' }} />
-                  <span>{lookupLoading ? 'Checking...' : 'Find My Key'}</span>
-                </button>
-              </form>
-
-              {lookupResults && (
-                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {lookupResults.length === 0 ? (
-                    <div style={{ fontSize: '0.75rem', color: '#fda4af' }}>
-                      No completed subscriptions found for that phone number or key.
-                    </div>
-                  ) : (
-                    lookupResults.map((sub: any) => (
-                      <div
-                        key={sub.key}
-                        style={{
-                          padding: '0.75rem',
-                          borderRadius: '0.7rem',
-                          backgroundColor: '#020617',
-                          border: '1px solid rgba(16, 185, 129, 0.35)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: '0.6rem',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <div>
-                          <code style={{ fontSize: '0.92rem', fontWeight: 800, color: '#34d399' }}>
-                            {sub.key}
-                          </code>
-                          <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.15rem' }}>
-                            {sub.serverName} • {sub.packageLabel} • Status:{' '}
-                            <strong style={{ color: sub.status === 'active' ? '#34d399' : '#fb7185' }}>
-                              {String(sub.status).toUpperCase()}
-                            </strong>{' '}
-                            • Expires: {new Date(sub.expiresAt).toLocaleDateString()}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => navigator.clipboard.writeText(sub.key)}
-                          className="btn-fleet-secondary"
-                          style={{ padding: '0.35rem 0.65rem', fontSize: '0.7rem' }}
-                        >
-                          <Copy style={{ width: '0.75rem', height: '0.75rem' }} />
-                          <span>Copy</span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+            <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+              TWEVE SERVER FLEET
+            </h1>
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
+              Admin Console Authentication
+            </p>
           </div>
-        ) : (
-          <div
-            className="fleet-card"
-            style={{
-              width: '100%',
-              maxWidth: '430px',
-              padding: '1.85rem 1.5rem',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label
                 style={{
-                  width: '3.4rem',
-                  height: '3.4rem',
-                  borderRadius: '1rem',
-                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
-                  border: '1px solid rgba(16, 185, 129, 0.5)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: '0.9rem',
-                  boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
+                  display: 'block',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#cbd5e1',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '0.4rem',
                 }}
               >
-                <Lock style={{ width: '1.55rem', height: '1.55rem', color: '#34d399' }} />
-              </div>
-              <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
-                TWEVE SERVER FLEET
-              </h1>
-              <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-                Admin sign in
-              </p>
+                Admin Email Address
+              </label>
+              <input
+                type="email"
+                required
+                autoFocus
+                autoComplete="username"
+                value={loginEmailInput}
+                onChange={(e) => setLoginEmailInput(e.target.value)}
+                placeholder="Email address"
+              />
             </div>
 
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    color: '#cbd5e1',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    marginBottom: '0.4rem',
-                  }}
-                >
-                  Admin Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  autoFocus
-                  autoComplete="username"
-                  value={loginEmailInput}
-                  onChange={(e) => setLoginEmailInput(e.target.value)}
-                  placeholder="Email address"
-                />
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    color: '#cbd5e1',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    marginBottom: '0.4rem',
-                  }}
-                >
-                  Admin Password
-                </label>
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input
-                    type={showLoginPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="current-password"
-                    value={loginPasswordInput}
-                    onChange={(e) => setLoginPasswordInput(e.target.value)}
-                    placeholder="Enter your password"
-                    style={{ paddingRight: '2.75rem' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowLoginPassword((v) => !v)}
-                    style={{
-                      position: 'absolute',
-                      right: '0.75rem',
-                      color: '#94a3b8',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
-                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                    title={showLoginPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showLoginPassword ? (
-                      <EyeOff style={{ width: '1rem', height: '1rem' }} />
-                    ) : (
-                      <Eye style={{ width: '1rem', height: '1rem' }} />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {loginError && (
-                <div
-                  style={{
-                    padding: '0.75rem 0.9rem',
-                    borderRadius: '0.75rem',
-                    backgroundColor: 'rgba(244, 63, 94, 0.14)',
-                    border: '1px solid rgba(244, 63, 94, 0.4)',
-                    color: '#fda4af',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  {loginError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loginLoading || loginLockedUntil > Date.now()}
-                className="btn-fleet-primary"
-                style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
+            <div>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#cbd5e1',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '0.4rem',
+                }}
               >
-                <Shield style={{ width: '1rem', height: '1rem' }} />
-                <span>
-                  {loginLockedUntil > Date.now()
-                    ? 'Access Temporarily Blocked'
-                    : loginLoading
-                      ? 'Signing in...'
-                      : 'Sign In to Fleet Console'}
-                </span>
-              </button>
-            </form>
-          </div>
-        )}
+                Admin Password
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showLoginPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={loginPasswordInput}
+                  onChange={(e) => setLoginPasswordInput(e.target.value)}
+                  placeholder="Enter your password"
+                  style={{ paddingRight: '2.75rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: '0.75rem',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                  title={showLoginPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showLoginPassword ? (
+                    <EyeOff style={{ width: '1rem', height: '1rem' }} />
+                  ) : (
+                    <Eye style={{ width: '1rem', height: '1rem' }} />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {loginError && (
+              <div
+                style={{
+                  padding: '0.75rem 0.9rem',
+                  borderRadius: '0.75rem',
+                  backgroundColor: 'rgba(244, 63, 94, 0.14)',
+                  border: '1px solid rgba(244, 63, 94, 0.4)',
+                  color: '#fda4af',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                }}
+              >
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading || loginLockedUntil > Date.now()}
+              className="btn-fleet-primary"
+              style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
+            >
+              <Shield style={{ width: '1rem', height: '1rem' }} />
+              <span>
+                {loginLockedUntil > Date.now()
+                  ? 'Access Temporarily Blocked'
+                  : loginLoading
+                    ? 'Signing in...'
+                    : 'Sign In to Fleet Console'}
+              </span>
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
@@ -1980,18 +1590,18 @@ export default function TweveServerFleetAdmin() {
 
           <button
             type="button"
-            className={`slide-menu-item ${mobileViewTab === 'all' ? 'active' : ''}`}
+            className={`slide-menu-item ${mobileViewTab === 'telemetry' ? 'active' : ''}`}
             onClick={() => {
-              setMobileViewTab('all');
+              setMobileViewTab('telemetry');
               setIsSlideMenuOpen(false);
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
               <Activity style={{ width: '1.05rem', height: '1.05rem', color: '#a78bfa' }} />
               <div>
-                <div>Split All Workspace</div>
+                <div>Telemetry & Bandwidth</div>
                 <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Deploy + Fleet multi-column view
+                  Connected users, MB/GB used, active nodes
                 </div>
               </div>
             </div>
@@ -1999,29 +1609,8 @@ export default function TweveServerFleetAdmin() {
           </button>
 
           <div style={{ padding: '0.75rem 0.5rem 0.25rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            External & Actions
+            Fleet Maintenance
           </div>
-
-          <button
-            type="button"
-            className="slide-menu-item"
-            onClick={() => {
-              setPublicMode('store');
-              fetchStoreCatalog();
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Zap style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} />
-              <div>
-                <div>User Store Catalog</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Client-side checkout simulator
-                </div>
-              </div>
-            </div>
-            <ExternalLink style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
 
           <button
             type="button"
@@ -2164,17 +1753,7 @@ export default function TweveServerFleetAdmin() {
               </strong>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setPublicMode('store');
-                fetchStoreCatalog();
-              }}
-              className="btn-fleet-secondary"
-            >
-              <Zap style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
-              <span>User Store</span>
-            </button>
+            
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
               <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
               <span>Exit</span>
@@ -2291,11 +1870,11 @@ export default function TweveServerFleetAdmin() {
         {/* Sticky Mobile & Tablet View Switcher */}
         <nav className="fleet-mobile-tabs">
           {[
-            { id: 'all', label: 'Split All' },
-            { id: 'deploy', label: editingServerId ? 'Edit Node' : '+ Deploy' },
-            { id: 'fleet', label: `Servers (${servers.length})` },
+            { id: 'fleet', label: `🌐 Fleet (${servers.length})` },
+            { id: 'deploy', label: editingServerId ? '✏️ Edit Node' : '➕ Deploy' },
             { id: 'payments', label: `💰 Profits (${totalProfitTzs > 0 ? (totalProfitTzs >= 1000 ? (totalProfitTzs / 1000).toFixed(0) + 'k' : totalProfitTzs) : '0'})` },
-            { id: 'broadcast', label: 'Broadcast' },
+            { id: 'broadcast', label: '📢 Notice' },
+            { id: 'telemetry', label: '📊 Telemetry' },
           ].map((tab) => {
             const active = mobileViewTab === tab.id;
             return (
@@ -2327,7 +1906,7 @@ export default function TweveServerFleetAdmin() {
           {/* LEFT COLUMN: Quick Import + Server Deployment Suite */}
           <div
             style={{
-              display: mobileViewTab === 'all' || mobileViewTab === 'deploy' ? 'flex' : 'none',
+              display: mobileViewTab === 'deploy' ? 'flex' : 'none',
               flexDirection: 'column',
               gap: '1.15rem',
               minWidth: 0,
@@ -3407,18 +2986,14 @@ export default function TweveServerFleetAdmin() {
           {/* RIGHT COLUMN: Active Fleet Servers + Broadcast Announcement */}
           <div
             style={{
-              display:
-                mobileViewTab === 'all' || mobileViewTab === 'fleet' || mobileViewTab === 'broadcast'
-                  ? 'flex'
-                  : 'none',
+              display: mobileViewTab === 'fleet' ? 'flex' : 'none',
               flexDirection: 'column',
               gap: '1.15rem',
               minWidth: 0,
             }}
           >
             {/* Active Fleet Servers Card */}
-            {(mobileViewTab === 'all' || mobileViewTab === 'fleet') && (
-              <section className="fleet-card fleet-section-pad">
+            <section className="fleet-card fleet-section-pad">
                 <div
                   style={{
                     display: 'flex',
@@ -3865,375 +3440,7 @@ export default function TweveServerFleetAdmin() {
                   )}
                 </div>
               </section>
-            )}
-
-            {/* Live Connected Users & MB/GB Bandwidth Breakdown Card */}
-            {(mobileViewTab === 'all' || mobileViewTab === 'fleet') && (
-              <section className="fleet-card fleet-section-pad">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '0.6rem',
-                    paddingBottom: '0.85rem',
-                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                    <div
-                      style={{
-                        padding: '0.4rem',
-                        borderRadius: '0.7rem',
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                        color: '#34d399',
-                      }}
-                    >
-                      <Users style={{ width: '1.05rem', height: '1.05rem' }} />
-                    </div>
-                    <div>
-                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                        Users & Bandwidth Telemetry ({analytics.activeUsersCount} Online / {analytics.totalConfiguredUsersCount || 0} Total)
-                      </h3>
-                      <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
-                        Real-time MB / GB consumption across all connected client devices
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={fetchAnalytics}
-                    className="btn-fleet-secondary"
-                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
-                  >
-                    <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
-                    <span>Sync Usage</span>
-                  </button>
-                </div>
-
-                <div style={{ marginTop: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {(!analytics.liveSampledSessions || analytics.liveSampledSessions.length === 0) ? (
-                    <div
-                      style={{
-                        textAlign: 'center',
-                        padding: '1.5rem 1rem',
-                        color: '#64748b',
-                        fontSize: '0.76rem',
-                      }}
-                    >
-                      No device telemetry sessions recorded yet. Users will appear here automatically as they connect.
-                    </div>
-                  ) : (
-                    analytics.liveSampledSessions.slice(0, 15).map((sess) => {
-                      const isOnline = sess.status === 'connected' || (Date.now() - sess.lastPing <= 90000 && sess.status !== 'offline');
-                      const sessTotalBytes = (Number(sess.totalBytesDown ?? sess.bytesDown) || 0) + (Number(sess.totalBytesUp ?? sess.bytesUp) || 0);
-                      const sessTotalMB = sessTotalBytes / (1024 * 1024);
-                      const sessTotalGB = sessTotalBytes / (1024 * 1024 * 1024);
-                      const displayTotal = sess.formattedAllTimeTotal || (sessTotalGB >= 1 ? `${sessTotalGB.toFixed(2)} GB` : `${sessTotalMB.toFixed(2)} MB`);
-                      return (
-                        <div
-                          key={sess.deviceId}
-                          style={{
-                            padding: '0.65rem 0.8rem',
-                            borderRadius: '0.7rem',
-                            backgroundColor: 'rgba(3, 7, 18, 0.75)',
-                            border: isOnline
-                              ? '1px solid rgba(16, 185, 129, 0.35)'
-                              : '1px solid rgba(56, 189, 248, 0.14)',
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '0.6rem',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                            <span
-                              style={{
-                                width: '0.5rem',
-                                height: '0.5rem',
-                                borderRadius: '9999px',
-                                backgroundColor: isOnline ? '#10b981' : '#64748b',
-                                boxShadow: isOnline ? '0 0 8px #10b981' : 'none',
-                                flexShrink: 0,
-                              }}
-                            />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>
-                                  {sess.serverName || 'Tweve Server'}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: '0.6rem',
-                                    fontWeight: 800,
-                                    padding: '0.08rem 0.4rem',
-                                    borderRadius: '0.3rem',
-                                    background: isOnline ? 'rgba(16, 185, 129, 0.16)' : 'rgba(100, 116, 139, 0.2)',
-                                    color: isOnline ? '#34d399' : '#94a3b8',
-                                    textTransform: 'uppercase',
-                                  }}
-                                >
-                                  {isOnline ? 'Connected' : 'Offline'}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: '0.66rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '0.12rem' }}>
-                                Device: {String(sess.deviceId).slice(0, 12)} • {sess.protocol}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
-                              fontFamily: 'monospace',
-                              fontSize: '0.7rem',
-                              flexWrap: 'wrap',
-                            }}
-                          >
-                            <span style={{ color: '#fcd34d', fontWeight: 800 }}>
-                              {displayTotal}
-                            </span>
-                            <span style={{ color: '#34d399' }}>
-                              ↓{sess.formattedDown || `${((Number(sess.totalBytesDown ?? sess.bytesDown) || 0) / (1024 * 1024)).toFixed(2)} MB`}
-                            </span>
-                            <span style={{ color: '#38bdf8' }}>
-                              ↑{sess.formattedUp || `${((Number(sess.totalBytesUp ?? sess.bytesUp) || 0) / (1024 * 1024)).toFixed(2)} MB`}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </section>
-            )}
-
-            {/* Global App Broadcast / Rich HTML Announcement Card */}
-            {(mobileViewTab === 'all' || mobileViewTab === 'broadcast') && (
-              <section className="fleet-card fleet-section-pad">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '0.6rem',
-                    paddingBottom: '0.85rem',
-                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                    <div
-                      style={{
-                        padding: '0.4rem',
-                        borderRadius: '0.7rem',
-                        background: 'rgba(192, 132, 252, 0.15)',
-                        border: '1px solid rgba(192, 132, 252, 0.3)',
-                        color: '#c084fc',
-                      }}
-                    >
-                      <Megaphone style={{ width: '1.05rem', height: '1.05rem' }} />
-                    </div>
-                    <div>
-                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                        App Broadcast & Styled HTML Message
-                      </h3>
-                      <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
-                        Supports plain text or styled HTML with clickable WhatsApp / phone links
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <textarea
-                    value={announcement}
-                    onChange={(e) => setAnnouncement(e.target.value)}
-                    rows={4}
-                    placeholder="Enter server announcement or styled HTML (<div style='...'>...</div>)..."
-                    style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveAnnouncement}
-                    className="btn-fleet-primary"
-                    style={{ width: '100%' }}
-                  >
-                    <Send style={{ width: '0.9rem', height: '0.9rem' }} />
-                    <span>Publish Broadcast to VPN App</span>
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {/* PressoPay Server-Side Gateway & Live Subscriptions Card */}
-            <section className="fleet-card fleet-section-pad">
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '0.6rem',
-                  paddingBottom: '0.85rem',
-                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                  <div
-                    style={{
-                      padding: '0.4rem',
-                      borderRadius: '0.7rem',
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      border: '1px solid rgba(16, 185, 129, 0.35)',
-                      color: '#34d399',
-                    }}
-                  >
-                    <KeyRound style={{ width: '1.05rem', height: '1.05rem' }} />
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                      PressoPay Server-Side Gateway & Orders ({paymentOrders.length})
-                    </h3>
-                    <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
-                      API Key ({gatewayInfo?.apiKeyMasked || 'pk_...'}) & HMAC Secret stored strictly in private Firebase DB
-                    </p>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                  <button
-                    type="button"
-                    onClick={() => setMobileViewTab('payments')}
-                    className="btn-fleet-primary"
-                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
-                  >
-                    <DollarSign style={{ width: '0.78rem', height: '0.78rem' }} />
-                    <span>View All & Count Profits</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={fetchPaymentsAdmin}
-                    className="btn-fleet-secondary"
-                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
-                  >
-                    <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
-                    <span>Sync Payments</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="fleet-form-grid-3" style={{ marginTop: '0.85rem', alignItems: 'end' }}>
-                <div>
-                  <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
-                    Default 7 Days Price (TZS)
-                  </label>
-                  <input
-                    type="number"
-                    value={default7dInput}
-                    onChange={(e) => setDefault7dInput(e.target.value)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
-                    Default 30 Days Price (TZS)
-                  </label>
-                  <input
-                    type="number"
-                    value={default30dInput}
-                    onChange={(e) => setDefault30dInput(e.target.value)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={savingGateway}
-                  onClick={handleSaveGatewayDefaults}
-                  className="btn-fleet-primary"
-                  style={{ justifyContent: 'center' }}
-                >
-                  <span>{savingGateway ? 'Saving...' : 'Save Default Prices'}</span>
-                </button>
-              </div>
-
-              {/* Recent Payment Orders & Issued Keys */}
-              <div style={{ marginTop: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                {paymentOrders.length === 0 ? (
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center', padding: '1rem' }}>
-                    No PressoPay checkout orders yet. When users purchase a 7-Day or 30-Day server package, orders and issued keys appear here.
-                  </div>
-                ) : (
-                  paymentOrders.slice(0, 12).map((ord: any) => (
-                    <div
-                      key={ord.orderId}
-                      style={{
-                        padding: '0.6rem 0.75rem',
-                        borderRadius: '0.65rem',
-                        backgroundColor: 'rgba(3, 7, 18, 0.8)',
-                        border:
-                          ord.status === 'COMPLETED'
-                            ? '1px solid rgba(16, 185, 129, 0.38)'
-                            : '1px solid rgba(56, 189, 248, 0.16)',
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '0.5rem',
-                        fontSize: '0.7rem',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      <div>
-                        <span style={{ color: '#ffffff', fontWeight: 800 }}>{ord.serverName}</span>
-                        {' • '}
-                        <span style={{ color: '#38bdf8' }}>{ord.packageLabel}</span>
-                        {' • '}
-                        <span style={{ color: '#fcd34d', fontWeight: 800 }}>
-                          {Number(ord.amountTzs).toLocaleString()} TZS
-                        </span>
-                        <div style={{ color: '#94a3b8', fontSize: '0.65rem', marginTop: '0.1rem' }}>
-                          Phone: {ord.buyerPhone} • Ref: {ord.pressoReference}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                        {ord.subscriptionKey && (
-                          <code style={{ color: '#34d399', fontWeight: 800 }}>
-                            {ord.subscriptionKey}
-                          </code>
-                        )}
-                        <span
-                          style={{
-                            padding: '0.1rem 0.45rem',
-                            borderRadius: '0.35rem',
-                            fontWeight: 800,
-                            fontSize: '0.62rem',
-                            background:
-                              ord.status === 'COMPLETED'
-                                ? 'rgba(16, 185, 129, 0.18)'
-                                : ord.status === 'PENDING'
-                                  ? 'rgba(251, 191, 36, 0.16)'
-                                  : 'rgba(244, 63, 94, 0.16)',
-                            color:
-                              ord.status === 'COMPLETED'
-                                ? '#34d399'
-                                : ord.status === 'PENDING'
-                                  ? '#fcd34d'
-                                  : '#fb7185',
-                          }}
-                        >
-                          {ord.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </div>
+            </div>
         </div>
 
         {/* DEDICATED PAYMENTS & PROFITS COMMAND CENTER VIEW */}
@@ -4805,6 +4012,343 @@ export default function TweveServerFleetAdmin() {
                     <span>{savingGateway ? 'Saving...' : 'Save Default Prices'}</span>
                   </button>
                 </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* DEDICATED APP BROADCAST COMMAND CENTER */}
+        {mobileViewTab === 'broadcast' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+            {/* Live Active Announcement Status Card */}
+            <section className="fleet-card fleet-section-pad">
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.85rem',
+                  paddingBottom: '1rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      width: '2.5rem',
+                      height: '2.5rem',
+                      borderRadius: '0.75rem',
+                      background: 'linear-gradient(135deg, rgba(192, 132, 252, 0.25) 0%, rgba(236, 72, 153, 0.2) 100%)',
+                      border: '1px solid rgba(192, 132, 252, 0.5)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#c084fc',
+                      boxShadow: '0 0 20px rgba(192, 132, 252, 0.25)',
+                    }}
+                  >
+                    <Megaphone style={{ width: '1.4rem', height: '1.4rem' }} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                      App Broadcast & Push Notification
+                    </h2>
+                    <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      Instantly alerts all client app users via interactive gesture bottom sheet
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={fetchServers}
+                    className="btn-fleet-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem' }}
+                  >
+                    <RefreshCw style={{ width: '0.85rem', height: '0.85rem' }} />
+                    <span>Sync Status</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Banner */}
+              <div style={{ marginTop: '1.15rem' }}>
+                {announcement && announcement.trim().length > 0 ? (
+                  <div
+                    style={{
+                      padding: '1.15rem 1.25rem',
+                      borderRadius: '0.95rem',
+                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%)',
+                      border: '1px solid rgba(16, 185, 129, 0.45)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.85rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ width: '0.6rem', height: '0.6rem', borderRadius: '9999px', backgroundColor: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
+                        <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          🟢 Live Broadcast Active on All Client Apps
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ta = document.getElementById('broadcast-textarea');
+                            if (ta) ta.focus();
+                            notify('success', 'Loaded active message into composer for editing');
+                          }}
+                          className="btn-fleet-secondary"
+                          style={{ padding: '0.35rem 0.65rem', fontSize: '0.72rem', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                        >
+                          <Edit3 style={{ width: '0.8rem', height: '0.8rem' }} />
+                          <span>Edit Message</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteAnnouncement}
+                          className="btn-fleet-secondary"
+                          style={{ padding: '0.35rem 0.65rem', fontSize: '0.72rem', color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.4)' }}
+                        >
+                          <Trash2 style={{ width: '0.8rem', height: '0.8rem' }} />
+                          <span>Delete / Clear Broadcast</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: '0.85rem 1rem',
+                        borderRadius: '0.75rem',
+                        backgroundColor: 'rgba(3, 7, 18, 0.85)',
+                        border: '1px solid rgba(56, 189, 248, 0.2)',
+                        color: '#f1f5f9',
+                        fontSize: '0.82rem',
+                        fontFamily: 'monospace',
+                        lineHeight: 1.5,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {announcement}
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: '1.25rem',
+                      borderRadius: '0.95rem',
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                      border: '1px dashed rgba(100, 116, 139, 0.35)',
+                      textAlign: 'center',
+                      color: '#94a3b8',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    ⚪ No active broadcast announcement. Client apps run silently with zero popup alerts.
+                  </div>
+                )}
+              </div>
+
+              {/* Compose / Edit Announcement Box */}
+              <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.45rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Compose or Edit Announcement
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Quick Templates:</span>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncement('⚠️ Server Maintenance: Infrastructure updates in progress. Connections remain stable on backup nodes.')}
+                      style={{ padding: '0.2rem 0.5rem', borderRadius: '0.45rem', fontSize: '0.65rem', background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)', color: '#fcd34d', cursor: 'pointer' }}
+                    >
+                      ⚠️ Maintenance
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncement('🚀 New High-Speed Servers Added! Check the server list for ultra-low latency VIP nodes.')}
+                      style={{ padding: '0.2rem 0.5rem', borderRadius: '0.45rem', fontSize: '0.65rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', color: '#38bdf8', cursor: 'pointer' }}
+                    >
+                      🚀 New Nodes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncement('💎 Special Offer: 30-Day VIP Pass now available for only 8,500 TZS! Tap Buy Server to activate.')}
+                      style={{ padding: '0.2rem 0.5rem', borderRadius: '0.45rem', fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', cursor: 'pointer' }}
+                    >
+                      💎 VIP Promo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnnouncement('⚡ SlowDNS Turbo Enabled: Enjoy faster DNS tunneling speeds with increased throughput!')}
+                      style={{ padding: '0.2rem 0.5rem', borderRadius: '0.45rem', fontSize: '0.65rem', background: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.3)', color: '#c084fc', cursor: 'pointer' }}
+                    >
+                      ⚡ SlowDNS Boost
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  id="broadcast-textarea"
+                  value={announcement}
+                  onChange={(e) => setAnnouncement(e.target.value)}
+                  rows={5}
+                  placeholder="Enter broadcast message for all VPN users (plain text or HTML with clickable links)..."
+                  style={{ fontFamily: 'monospace', fontSize: '0.8rem', padding: '0.85rem' }}
+                />
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={handleSaveAnnouncement}
+                    className="btn-fleet-primary"
+                    style={{ flex: 1, minWidth: '220px', justifyContent: 'center' }}
+                  >
+                    <Send style={{ width: '0.95rem', height: '0.95rem' }} />
+                    <span>Publish / Update Broadcast to All Apps</span>
+                  </button>
+                  {announcement && announcement.trim().length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteAnnouncement}
+                      className="btn-fleet-secondary"
+                      style={{ padding: '0.75rem 1.15rem', color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.4)' }}
+                    >
+                      <Trash2 style={{ width: '0.95rem', height: '0.95rem' }} />
+                      <span>Delete / Clear</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* DEDICATED REAL-TIME TELEMETRY & BANDWIDTH VIEW */}
+        {mobileViewTab === 'telemetry' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+            <section className="fleet-card fleet-section-pad">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.6rem',
+                  paddingBottom: '0.85rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                  <div
+                    style={{
+                      padding: '0.45rem',
+                      borderRadius: '0.75rem',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: '#34d399',
+                    }}
+                  >
+                    <Activity style={{ width: '1.15rem', height: '1.15rem' }} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>
+                      Real-Time Telemetry & Bandwidth Accounting
+                    </h3>
+                    <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      {analytics.activeUsersCount} Online Now · {analytics.totalConfiguredUsersCount || 0} Total Registered Devices
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchAnalytics}
+                  className="btn-fleet-secondary"
+                  style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem' }}
+                >
+                  <RefreshCw style={{ width: '0.85rem', height: '0.85rem' }} />
+                  <span>Refresh Telemetry</span>
+                </button>
+              </div>
+
+              {/* Live Sampled Device Sessions */}
+              <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {(!analytics.liveSampledSessions || analytics.liveSampledSessions.length === 0) ? (
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      padding: '2rem 1rem',
+                      color: '#64748b',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    No device telemetry sessions recorded yet. Devices appear here live as they connect.
+                  </div>
+                ) : (
+                  analytics.liveSampledSessions.slice(0, 30).map((sess) => {
+                    const isOnline = sess.status === 'connected' || (Date.now() - sess.lastPing <= 90000 && sess.status !== 'offline');
+                    const sessTotalBytes = (Number(sess.totalBytesDown ?? sess.bytesDown) || 0) + (Number(sess.totalBytesUp ?? sess.bytesUp) || 0);
+                    const sessTotalMB = sessTotalBytes / (1024 * 1024);
+                    const sessTotalGB = sessTotalBytes / (1024 * 1024 * 1024);
+                    const displayTotal = sess.formattedAllTimeTotal || (sessTotalGB >= 1 ? `${sessTotalGB.toFixed(2)} GB` : `${sessTotalMB.toFixed(2)} MB`);
+                    return (
+                      <div
+                        key={sess.deviceId}
+                        style={{
+                          padding: '0.75rem 0.9rem',
+                          borderRadius: '0.75rem',
+                          backgroundColor: 'rgba(3, 7, 18, 0.75)',
+                          border: isOnline
+                            ? '1px solid rgba(16, 185, 129, 0.35)'
+                            : '1px solid rgba(56, 189, 248, 0.14)',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '0.6rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+                          <span
+                            style={{
+                              width: '0.55rem',
+                              height: '0.55rem',
+                              borderRadius: '9999px',
+                              backgroundColor: isOnline ? '#10b981' : '#64748b',
+                              boxShadow: isOnline ? '0 0 8px #10b981' : 'none',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#f8fafc', fontFamily: 'monospace' }}>
+                              {(sess as any).deviceModel || 'Client Device'} · <span style={{ color: '#94a3b8' }}>{sess.deviceId.substring(0, 10)}...</span>
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '0.1rem' }}>
+                              Server: <strong style={{ color: '#38bdf8' }}>{sess.serverName || sess.serverId}</strong> · Proto: {sess.protocol} · App: v{(sess as any).appVersion || '1.0'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.72rem', fontFamily: 'monospace' }}>
+                          <span style={{ color: '#fbbf24', fontWeight: 800 }}>
+                            {displayTotal}
+                          </span>
+                          <span style={{ color: '#34d399' }}>
+                            ↓{sess.formattedDown || `${((Number(sess.totalBytesDown ?? sess.bytesDown) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                          </span>
+                          <span style={{ color: '#38bdf8' }}>
+                            ↑{sess.formattedUp || `${((Number(sess.totalBytesUp ?? sess.bytesUp) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </section>
           </div>
