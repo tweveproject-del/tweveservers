@@ -2493,3 +2493,43 @@ select option {
     padding: 0.8rem 1.1rem !important;
   }
 }
+
+
+/* Modern web guidance polish */
+:root {
+  color-scheme: dark;
+  --target-size: 24px;
+}
+
+@media (pointer: coarse) {
+  :root { --target-size: 44px; }
+}
+
+:where(button, select, textarea, input:not([type="checkbox"], [type="radio"])) {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #22d3ee !important;
+  outline-offset: 2px;
+}
+
+body { overflow-wrap: anywhere; }
+h1, h2, h3 { text-wrap: balance; }
+
+input:user-invalid {
+  border-color: #fb7185 !important;
+}
+
+.fleet-shell {
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

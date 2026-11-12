@@ -795,7 +795,7 @@ export default function TweveServerFleetAdmin() {
     return (
       <div
         style={{
-          minHeight: '100vh',
+          minHeight: '100dvh',
           backgroundColor: '#020617',
           color: '#f8fafc',
           display: 'flex',
@@ -816,7 +816,7 @@ export default function TweveServerFleetAdmin() {
     return (
       <div
         style={{
-          minHeight: '100vh',
+          minHeight: '100dvh',
           backgroundColor: '#020617',
           backgroundImage:
             'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 55%), radial-gradient(circle at 85% 90%, rgba(56, 189, 248, 0.12), transparent 45%)',
@@ -921,6 +921,7 @@ export default function TweveServerFleetAdmin() {
                     display: 'flex',
                     alignItems: 'center',
                   }}
+                  aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
                   title={showLoginPassword ? 'Hide password' : 'Show password'}
                 >
                   {showLoginPassword ? (
@@ -982,7 +983,7 @@ export default function TweveServerFleetAdmin() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#020617', color: '#f8fafc' }}>
+    <div style={{ minHeight: '100dvh', backgroundColor: '#020617', color: '#f8fafc' }}>
       {/* Sticky Top Header */}
       <header
         style={{
@@ -1203,6 +1204,7 @@ export default function TweveServerFleetAdmin() {
                           setShowAdminPasswords((prev) => ({ ...prev, [adm.email]: !prev[adm.email] }))
                         }
                         style={{ color: '#38bdf8', cursor: 'pointer', padding: '0.25rem' }}
+                        aria-label={`${pwVisible ? 'Hide' : 'Show'} password for ${adm.email}`}
                         title="Show/Hide Password"
                       >
                         {pwVisible ? <EyeOff style={{ width: '0.85rem', height: '0.85rem' }} /> : <Eye style={{ width: '0.85rem', height: '0.85rem' }} />}
@@ -1212,6 +1214,7 @@ export default function TweveServerFleetAdmin() {
                           type="button"
                           onClick={() => handleRemoveFirebaseAdmin(adm.email)}
                           style={{ color: '#fb7185', cursor: 'pointer', padding: '0.25rem' }}
+                          aria-label={`Delete admin ${adm.email}`}
                           title="Delete Admin from Firebase"
                         >
                           <Trash2 style={{ width: '0.85rem', height: '0.85rem' }} />
@@ -2275,6 +2278,7 @@ export default function TweveServerFleetAdmin() {
                                   color: '#fb7185',
                                   cursor: 'pointer',
                                 }}
+                                aria-label={`Delete server ${s.name}`}
                                 title="Delete server"
                               >
                                 <Trash2 style={{ width: '0.82rem', height: '0.82rem' }} />

@@ -1,5 +1,13 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#020617',
+  colorScheme: 'dark',
+};
 
 export const metadata: Metadata = {
   title: 'Tweve Tunnel • VPN Server Fleet Control Center',
