@@ -52,8 +52,8 @@ export function convertToApkServerStructure(
   const now = Date.now();
   const hasValidSub = Boolean(
     activeSubscription &&
-      activeSubscription.status === 'active' &&
-      Number(activeSubscription.expiresAt || 0) > now
+    activeSubscription.status === 'active' &&
+    Number(activeSubscription.expiresAt || 0) > now
   );
 
   for (const s of servers) {
@@ -62,21 +62,24 @@ export function convertToApkServerStructure(
 
     const configId = `cfg_${s.id}`;
     const rawTier = (s.tier || 'FREE').toUpperCase();
-    const isPaidServer = Boolean(s.requiresPackage || rawTier === 'VIP' || rawTier === 'PREMIUM');
+    const isPaidServer = Boolean(
+      s.requiresPackage ||
+      rawTier === 'VIP' ||
+      rawTier === 'PREMIUM' ||
+      rawTier === 'PRO' ||
+      rawTier === 'BASIC'
+    );
     const isUnlockedBySub =
       hasValidSub &&
-      (activeSubscription?.serverId === 'ALL' ||
-        activeSubscription?.serverId === s.id ||
-        rawTier === 'VIP' ||
-        rawTier === 'PREMIUM');
+      (!activeSubscription?.serverId ||
+        activeSubscription.serverId === 'ALL' ||
+        activeSubscription.serverId === s.id);
 
     const tierStr = isPaidServer
-      ? isUnlockedBySub
-        ? 'free'
-        : rawTier === 'VIP'
-          ? 'vip'
-          : 'premium'
-      : 'free';
+      ? rawTier === 'VIP'
+        ? 'VIP'
+        : 'PREMIUM'
+      : 'FREE';
 
     // Map protocol to APK connectionType:
     // 0 = SSH Direct
@@ -148,8 +151,11 @@ export function convertToApkServerStructure(
         connectionType = 0;
     }
 
-    const effectiveHost = s.host || s.v2rayAddress || s.slipstreamDomain || s.dnsttNameserver || '';
-    const effectiveV2rayAddress = s.v2rayAddress || s.host || '';
+    const lockedOut = isPaidServer && !isUnlockedBySub;
+    const effectiveHost = lockedOut
+      ? ''
+      : s.host || s.v2rayAddress || s.slipstreamDomain || s.dnsttNameserver || '';
+    const effectiveV2rayAddress = lockedOut ? '' : s.v2rayAddress || s.host || '';
     const effectiveV2rayPort = Number(s.v2rayPort || s.portSSL || 443);
     const effectiveV2rayNetwork =
       s.v2rayNetwork || (s.protocol === 'v2ray_ws' ? 'ws' : 'tcp');
@@ -160,8 +166,9 @@ export function convertToApkServerStructure(
         : s.protocol === 'v2ray_ws'
           ? 'tls'
           : 'none');
-    const effectivePayload =
-      s.protocol === 'wireguard'
+    const effectivePayload = lockedOut
+      ? ''
+      : s.protocol === 'wireguard'
         ? s.wireguardConfig || s.payload || ''
         : s.payload || '';
 
@@ -178,45 +185,45 @@ export function convertToApkServerStructure(
       portHTTP: Number(s.portHTTP || s.portDirect || 80),
       portSSL: Number(s.portSSL || s.v2rayPort || 443),
       portDNSTT: Number(s.portDNSTT || s.portDirect || 22),
-      username: s.username || '',
-      password: s.password || '',
+      username: lockedOut ? '' : s.username || '',
+      password: lockedOut ? '' : s.password || '',
       payload: effectivePayload,
-      sni: s.sni || s.v2raySni || s.hysteriaSni || '',
-      cdnDomain: s.cdnDomain || s.v2rayWsHost || s.v2raySni || '',
-      cdnPayload: s.cdnPayload || effectivePayload,
+      sni: lockedOut ? '' : s.sni || s.v2raySni || s.hysteriaSni || '',
+      cdnDomain: lockedOut ? '' : s.cdnDomain || s.v2rayWsHost || s.v2raySni || '',
+      cdnPayload: lockedOut ? '' : s.cdnPayload || effectivePayload,
       // SlowDNS / DNSTT fields
-      dnsttNameserver: s.dnsttNameserver || '',
-      dnsttPubkey: s.dnsttPubkey || '',
+      dnsttNameserver: lockedOut ? '' : s.dnsttNameserver || '',
+      dnsttPubkey: lockedOut ? '' : s.dnsttPubkey || '',
       // V2Ray fields
       v2rayAddress: effectiveV2rayAddress,
       v2rayPort: effectiveV2rayPort,
       v2rayProtocol: s.v2rayProtocol || 'vless',
-      v2rayUuid: s.v2rayUuid || '',
+      v2rayUuid: lockedOut ? '' : s.v2rayUuid || '',
       v2raySecurity: effectiveV2raySecurity,
-      v2raySni: s.v2raySni || s.sni || s.v2rayWsHost || '',
-      v2rayPublicKey: s.v2rayPublicKey || '',
-      v2rayShortId: s.v2rayShortId || '',
+      v2raySni: lockedOut ? '' : s.v2raySni || s.sni || s.v2rayWsHost || '',
+      v2rayPublicKey: lockedOut ? '' : s.v2rayPublicKey || '',
+      v2rayShortId: lockedOut ? '' : s.v2rayShortId || '',
       v2rayFingerprint: s.v2rayFingerprint || 'chrome',
       v2rayNetwork: effectiveV2rayNetwork,
-      v2rayWsHost: s.v2rayWsHost || s.v2raySni || '',
-      v2rayWsPath: s.v2rayWsPath || '/',
+      v2rayWsHost: lockedOut ? '' : s.v2rayWsHost || s.v2raySni || '',
+      v2rayWsPath: lockedOut ? '/' : s.v2rayWsPath || '/',
       v2rayAllowInsecure: Boolean(s.v2rayAllowInsecure),
       // Hysteria2 fields
       hysteriaPort: Number(s.hysteriaPort || 443),
-      hysteriaPorts: s.hysteriaPorts || '',
+      hysteriaPorts: lockedOut ? '' : s.hysteriaPorts || '',
       hysteriaHopInterval: Number(s.hysteriaHopInterval || 30),
-      hysteriaAuth: s.hysteriaAuth || '',
-      hysteriaObfs: s.hysteriaObfs || '',
-      hysteriaSni: s.hysteriaSni || s.sni || '',
+      hysteriaAuth: lockedOut ? '' : s.hysteriaAuth || '',
+      hysteriaObfs: lockedOut ? '' : s.hysteriaObfs || '',
+      hysteriaSni: lockedOut ? '' : s.hysteriaSni || s.sni || '',
       hysteriaInsecure: s.hysteriaInsecure !== undefined ? Boolean(s.hysteriaInsecure) : true,
       hysteriaUp: Number(s.hysteriaUp || 20),
       hysteriaDown: Number(s.hysteriaDown || 100),
       // Stealth Turbo (Slipstream) fields
-      slipstreamDomain: s.slipstreamDomain || s.dnsttNameserver || '',
-      slipstreamCert: s.slipstreamCert || s.dnsttPubkey || '',
+      slipstreamDomain: lockedOut ? '' : s.slipstreamDomain || s.dnsttNameserver || '',
+      slipstreamCert: lockedOut ? '' : s.slipstreamCert || s.dnsttPubkey || '',
       slipstreamDirect: Boolean(s.slipstreamDirect),
       // Protection, Expiration & Package Pricing flags
-      isLocked: Boolean(s.isLocked),
+      isLocked: Boolean(s.isLocked || lockedOut),
       expiresAt: s.expiresAt ? Number(s.expiresAt) : 0,
       expireAction: s.expireAction || 'delete',
       requiresPackage: isPaidServer,
@@ -233,8 +240,10 @@ export function convertToApkServerStructure(
       requiredTier: tierStr,
       connectionType: connectionType,
       payload: effectivePayload,
-      sni: s.sni || s.v2raySni || s.hysteriaSni || '',
-      proxyHost: s.proxyHost || ([4, 5, 7].includes(connectionType) ? effectiveHost : ''),
+      sni: lockedOut ? '' : s.sni || s.v2raySni || s.hysteriaSni || '',
+      proxyHost: lockedOut
+        ? ''
+        : s.proxyHost || ([4, 5, 7].includes(connectionType) ? effectiveHost : ''),
       proxyPort: Number(s.proxyPort || s.portHTTP || s.portSSL || 8080),
       dnsResolver: s.dnsResolver || '8.8.8.8:53',
       dnstt_base62: Boolean(s.dnsttBase62),

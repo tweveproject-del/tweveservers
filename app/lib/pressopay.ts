@@ -190,8 +190,8 @@ export function getServerPackages(
     mode === 'default'
       ? defaultPrice30Days
       : Number(
-          server.price30DaysTzs && server.price30DaysTzs > 0 ? server.price30DaysTzs : defaultPrice30Days
-        );
+        server.price30DaysTzs && server.price30DaysTzs > 0 ? server.price30DaysTzs : defaultPrice30Days
+      );
 
   const packages: ServerPackageOption[] = [];
 
@@ -432,12 +432,12 @@ export async function listPaymentOrders(limit = 100): Promise<PaymentOrderRecord
               if (o && o.orderId && !byId.has(o.orderId)) {
                 byId.set(o.orderId, o);
               }
-            } catch {}
+            } catch { }
           }
         }
       }
     }
-  } catch {}
+  } catch { }
 
   return Array.from(byId.values())
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
@@ -467,7 +467,7 @@ export async function getSubscriptionByKey(accessKey: string): Promise<Subscript
         sub = data;
       }
     }
-  } catch {}
+  } catch { }
 
   if (!sub) {
     try {
@@ -483,7 +483,7 @@ export async function getSubscriptionByKey(accessKey: string): Promise<Subscript
           if (parsed && parsed.accessKey) sub = parsed as SubscriptionRecord;
         }
       }
-    } catch {}
+    } catch { }
   }
 
   if (sub && sub.accessKey) {
@@ -547,7 +547,7 @@ export async function listSubscriptions(limit = 100): Promise<SubscriptionRecord
         }
       }
     }
-  } catch {}
+  } catch { }
 
   try {
     const fsRes = await fetch(`${FIRESTORE_BASE_DOCS}/tweve_subscriptions?pageSize=100`, {
@@ -565,12 +565,12 @@ export async function listSubscriptions(limit = 100): Promise<SubscriptionRecord
               if (s && s.accessKey && !byKey.has(s.accessKey)) {
                 byKey.set(s.accessKey, s);
               }
-            } catch {}
+            } catch { }
           }
         }
       }
     }
-  } catch {}
+  } catch { }
 
   const now = Date.now();
   return Array.from(byKey.values())

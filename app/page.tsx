@@ -1093,9 +1093,9 @@ export default function TweveServerFleetAdmin() {
       selectedStoreServer?.packages && selectedStoreServer.packages.length > 0
         ? selectedStoreServer.packages
         : [
-            { id: '7d', label: '7 Days', days: 7, priceTzs: 2700 },
-            { id: '30d', label: '30 Days (1 Month)', days: 30, priceTzs: 8500 },
-          ];
+          { id: '7d', label: '7 Days', days: 7, priceTzs: 2700 },
+          { id: '30d', label: '30 Days (1 Month)', days: 30, priceTzs: 8500 },
+        ];
     const activePkg =
       serverPackages.find((p) => p.id === selectedPackageId) || serverPackages[0];
 
@@ -1511,145 +1511,145 @@ export default function TweveServerFleetAdmin() {
             </div>
           </div>
         ) : (
-        <div
-          className="fleet-card"
-          style={{
-            width: '100%',
-            maxWidth: '430px',
-            padding: '1.85rem 1.5rem',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.5rem' }}>
-            <div
-              style={{
-                width: '3.4rem',
-                height: '3.4rem',
-                borderRadius: '1rem',
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
-                border: '1px solid rgba(16, 185, 129, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '0.9rem',
-                boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
-              }}
-            >
-              <Lock style={{ width: '1.55rem', height: '1.55rem', color: '#34d399' }} />
-            </div>
-            <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
-              TWEVE SERVER FLEET
-            </h1>
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-              Admin sign in
-            </p>
-          </div>
-
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  marginBottom: '0.4rem',
-                }}
-              >
-                Admin Email Address
-              </label>
-              <input
-                type="email"
-                required
-                autoFocus
-                autoComplete="username"
-                value={loginEmailInput}
-                onChange={(e) => setLoginEmailInput(e.target.value)}
-                placeholder="Email address"
-              />
-            </div>
-
-            <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  marginBottom: '0.4rem',
-                }}
-              >
-                Admin Password
-              </label>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
-                  type={showLoginPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={loginPasswordInput}
-                  onChange={(e) => setLoginPasswordInput(e.target.value)}
-                  placeholder="Enter your password"
-                  style={{ paddingRight: '2.75rem' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword((v) => !v)}
-                  style={{
-                    position: 'absolute',
-                    right: '0.75rem',
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                  aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
-                  title={showLoginPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showLoginPassword ? (
-                    <EyeOff style={{ width: '1rem', height: '1rem' }} />
-                  ) : (
-                    <Eye style={{ width: '1rem', height: '1rem' }} />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {loginError && (
+          <div
+            className="fleet-card"
+            style={{
+              width: '100%',
+              maxWidth: '430px',
+              padding: '1.85rem 1.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.5rem' }}>
               <div
                 style={{
-                  padding: '0.75rem 0.9rem',
-                  borderRadius: '0.75rem',
-                  backgroundColor: 'rgba(244, 63, 94, 0.14)',
-                  border: '1px solid rgba(244, 63, 94, 0.4)',
-                  color: '#fda4af',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
+                  width: '3.4rem',
+                  height: '3.4rem',
+                  borderRadius: '1rem',
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
+                  border: '1px solid rgba(16, 185, 129, 0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '0.9rem',
+                  boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
                 }}
               >
-                {loginError}
+                <Lock style={{ width: '1.55rem', height: '1.55rem', color: '#34d399' }} />
               </div>
-            )}
+              <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                TWEVE SERVER FLEET
+              </h1>
+              <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
+                Admin sign in
+              </p>
+            </div>
 
-            <button
-              type="submit"
-              disabled={loginLoading || loginLockedUntil > Date.now()}
-              className="btn-fleet-primary"
-              style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
-            >
-              <Shield style={{ width: '1rem', height: '1rem' }} />
-              <span>
-                {loginLockedUntil > Date.now()
-                  ? 'Access Temporarily Blocked'
-                  : loginLoading
-                    ? 'Signing in...'
-                    : 'Sign In to Fleet Console'}
-              </span>
-            </button>
-          </form>
-        </div>
+            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    color: '#cbd5e1',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '0.4rem',
+                  }}
+                >
+                  Admin Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                  value={loginEmailInput}
+                  onChange={(e) => setLoginEmailInput(e.target.value)}
+                  placeholder="Email address"
+                />
+              </div>
+
+              <div>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    color: '#cbd5e1',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '0.4rem',
+                  }}
+                >
+                  Admin Password
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    value={loginPasswordInput}
+                    onChange={(e) => setLoginPasswordInput(e.target.value)}
+                    placeholder="Enter your password"
+                    style={{ paddingRight: '2.75rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((v) => !v)}
+                    style={{
+                      position: 'absolute',
+                      right: '0.75rem',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                    title={showLoginPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showLoginPassword ? (
+                      <EyeOff style={{ width: '1rem', height: '1rem' }} />
+                    ) : (
+                      <Eye style={{ width: '1rem', height: '1rem' }} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {loginError && (
+                <div
+                  style={{
+                    padding: '0.75rem 0.9rem',
+                    borderRadius: '0.75rem',
+                    backgroundColor: 'rgba(244, 63, 94, 0.14)',
+                    border: '1px solid rgba(244, 63, 94, 0.4)',
+                    color: '#fda4af',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  {loginError}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loginLoading || loginLockedUntil > Date.now()}
+                className="btn-fleet-primary"
+                style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
+              >
+                <Shield style={{ width: '1rem', height: '1rem' }} />
+                <span>
+                  {loginLockedUntil > Date.now()
+                    ? 'Access Temporarily Blocked'
+                    : loginLoading
+                      ? 'Signing in...'
+                      : 'Sign In to Fleet Console'}
+                </span>
+              </button>
+            </form>
+          </div>
         )}
       </div>
     );
@@ -2828,71 +2828,71 @@ export default function TweveServerFleetAdmin() {
                       packagePricingMode === 'custom_both' ||
                       packagePricingMode === 'only_7d' ||
                       packagePricingMode === 'none') && (
-                      <div>
-                        <label
-                          style={{
-                            fontSize: '0.7rem',
-                            color: '#94a3b8',
-                            display: 'block',
-                            marginBottom: '0.3rem',
-                            fontWeight: 600,
-                          }}
-                        >
-                          7 Days Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
-                        </label>
-                        <input
-                          type="number"
-                          min="100"
-                          disabled={packagePricingMode === 'default'}
-                          value={
-                            packagePricingMode === 'default'
-                              ? String(gatewayInfo?.defaultPrice7Days || 2700)
-                              : price7DaysTzs
-                          }
-                          onChange={(e) => setPrice7DaysTzs(e.target.value)}
-                          placeholder="2700"
-                          style={{
-                            fontFamily: 'monospace',
-                            opacity: packagePricingMode === 'default' ? 0.75 : 1,
-                          }}
-                        />
-                      </div>
-                    )}
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '0.7rem',
+                              color: '#94a3b8',
+                              display: 'block',
+                              marginBottom: '0.3rem',
+                              fontWeight: 600,
+                            }}
+                          >
+                            7 Days Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
+                          </label>
+                          <input
+                            type="number"
+                            min="100"
+                            disabled={packagePricingMode === 'default'}
+                            value={
+                              packagePricingMode === 'default'
+                                ? String(gatewayInfo?.defaultPrice7Days || 2700)
+                                : price7DaysTzs
+                            }
+                            onChange={(e) => setPrice7DaysTzs(e.target.value)}
+                            placeholder="2700"
+                            style={{
+                              fontFamily: 'monospace',
+                              opacity: packagePricingMode === 'default' ? 0.75 : 1,
+                            }}
+                          />
+                        </div>
+                      )}
 
                     {(packagePricingMode === 'default' ||
                       packagePricingMode === 'custom_both' ||
                       packagePricingMode === 'only_30d' ||
                       packagePricingMode === 'none') && (
-                      <div>
-                        <label
-                          style={{
-                            fontSize: '0.7rem',
-                            color: '#94a3b8',
-                            display: 'block',
-                            marginBottom: '0.3rem',
-                            fontWeight: 600,
-                          }}
-                        >
-                          30 Days / Month Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
-                        </label>
-                        <input
-                          type="number"
-                          min="100"
-                          disabled={packagePricingMode === 'default'}
-                          value={
-                            packagePricingMode === 'default'
-                              ? String(gatewayInfo?.defaultPrice30Days || 8500)
-                              : price30DaysTzs
-                          }
-                          onChange={(e) => setPrice30DaysTzs(e.target.value)}
-                          placeholder="8500"
-                          style={{
-                            fontFamily: 'monospace',
-                            opacity: packagePricingMode === 'default' ? 0.75 : 1,
-                          }}
-                        />
-                      </div>
-                    )}
+                        <div>
+                          <label
+                            style={{
+                              fontSize: '0.7rem',
+                              color: '#94a3b8',
+                              display: 'block',
+                              marginBottom: '0.3rem',
+                              fontWeight: 600,
+                            }}
+                          >
+                            30 Days / Month Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
+                          </label>
+                          <input
+                            type="number"
+                            min="100"
+                            disabled={packagePricingMode === 'default'}
+                            value={
+                              packagePricingMode === 'default'
+                                ? String(gatewayInfo?.defaultPrice30Days || 8500)
+                                : price30DaysTzs
+                            }
+                            onChange={(e) => setPrice30DaysTzs(e.target.value)}
+                            placeholder="8500"
+                            style={{
+                              fontFamily: 'monospace',
+                              opacity: packagePricingMode === 'default' ? 0.75 : 1,
+                            }}
+                          />
+                        </div>
+                      )}
                   </div>
                 )}
               </div>

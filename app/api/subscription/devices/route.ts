@@ -92,3 +92,4 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true }, { status: 200, headers: CORS_HEADERS });
   }
 }
+
