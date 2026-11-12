@@ -1,27 +1,31 @@
 import crypto from 'crypto';
 
-// Native APK AES-256-GCM Master Key (extracted from SecureConfigEncryption.smali)
-// part1: 8f3a9c2e7b1d4f6a, part2: 5e8c2b9d4f7a1e3c, part3: 6d9b3f8e2c5a7d1b, part4: 4c7e1a9f3b6d8c2e
-const APK_AES_KEY_HEX = '8f3a9c2e7b1d4f6a5e8c2b9d4f7a1e3c6d9b3f8e2c5a7d1b4c7e1a9f3b6d8c2e';
+// Native APK PBKDF2-HMAC-SHA256 Passphrase (from SecureConfigEncryption.smali)
+// PASSPHRASE = "TunnelTweak-Secure-v1", ITERATIONS = 10000 (0x2710), KEY_LENGTH = 256 bits (32 bytes)
+// Wire layout: Base64( SALT [16 bytes] + IV [12 bytes] + CIPHERTEXT + GCM_AUTH_TAG [16 bytes] )
+const APK_PASSPHRASE = 'TunnelTweak-Secure-v1';
+const PBKDF2_ITERATIONS = 10000;
+const KEY_LEN_BYTES = 32;
 
 export function encryptManifest(jsonObj: object): string {
   const plaintext = JSON.stringify(jsonObj);
-  const key = Buffer.from(APK_AES_KEY_HEX, 'hex');
+  const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(12);
+  const key = crypto.pbkdf2Sync(APK_PASSPHRASE, salt, PBKDF2_ITERATIONS, KEY_LEN_BYTES, 'sha256');
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag(); // 16 bytes (128 bits)
-  // Native APK expects: IV (12 bytes) + Ciphertext + AuthTag (16 bytes), Base64-encoded
-  return Buffer.concat([iv, encrypted, authTag]).toString('base64');
+  return Buffer.concat([salt, iv, encrypted, authTag]).toString('base64');
 }
 
 export function decryptManifest(base64Blob: string): any {
   const raw = Buffer.from(base64Blob.trim(), 'base64');
-  if (raw.length < 28) throw new Error('Invalid encrypted blob');
-  const key = Buffer.from(APK_AES_KEY_HEX, 'hex');
-  const iv = raw.subarray(0, 12);
+  if (raw.length < 44) throw new Error('Invalid encrypted blob');
+  const salt = raw.subarray(0, 16);
+  const iv = raw.subarray(16, 28);
   const authTag = raw.subarray(raw.length - 16);
-  const ciphertext = raw.subarray(12, raw.length - 16);
+  const ciphertext = raw.subarray(28, raw.length - 16);
+  const key = crypto.pbkdf2Sync(APK_PASSPHRASE, salt, PBKDF2_ITERATIONS, KEY_LEN_BYTES, 'sha256');
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(authTag);
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');

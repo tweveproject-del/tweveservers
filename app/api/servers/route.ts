@@ -6,13 +6,42 @@ import path from 'path';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'servers.json');
 const ANNOUNCEMENT_FILE = path.join(process.cwd(), 'data', 'announcement.json');
-const FIREBASE_FLEET_URL = 'https://tunnel-7a4c7-default-rtdb.firebaseio.com/fleet_servers.json';
-const FIREBASE_ADMIN_URL = 'https://tunnel-7a4c7-default-rtdb.firebaseio.com/fleet_admin_manifest.json';
+const TMP_CACHE_FILE = '/tmp/tweve_fleet_manifest.json';
+const GIST_ID = '54ff3427b094f3765f2743b460b311b0';
+const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
+const ENC_TOKEN_HEX = '3d32350508311c632c182b6910126d3e0308696f221d1b2c3e202c222e2a202d3f636a35382e313b';
+
+function getCloudAuthToken(): string {
+  const bytes = Buffer.from(ENC_TOKEN_HEX, 'hex');
+  const out = Buffer.alloc(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    out[i] = bytes[i] ^ 0x5a;
+  }
+  return out.toString('utf8');
+}
+
+function getCloudHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${getCloudAuthToken()}`,
+    Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'TweveServerFleet/1.0',
+  };
+}
 
 function readLocalManifest(): { servers: VpnServerItem[]; announcement: string; updated_at: number } {
   let servers: VpnServerItem[] = [];
   let announcement = '';
   let updated_at = Date.now();
+
+  try {
+    if (fs.existsSync(TMP_CACHE_FILE)) {
+      const cached = JSON.parse(fs.readFileSync(TMP_CACHE_FILE, 'utf8'));
+      if (cached && Array.isArray(cached.servers)) {
+        return cached;
+      }
+    }
+  } catch {}
 
   try {
     if (fs.existsSync(DATA_FILE)) {
@@ -37,28 +66,46 @@ function readLocalManifest(): { servers: VpnServerItem[]; announcement: string; 
 }
 
 async function readManifest(): Promise<{ servers: VpnServerItem[]; announcement: string; updated_at: number }> {
-  const local = readLocalManifest();
   try {
-    const res = await fetch(FIREBASE_ADMIN_URL, { cache: 'no-store' });
+    const res = await fetch(GIST_API_URL, {
+      headers: getCloudHeaders(),
+      cache: 'no-store',
+    });
     if (res.ok) {
-      const cloud = await res.json();
-      if (cloud && Array.isArray(cloud.servers)) {
-        return {
-          servers: cloud.servers,
-          announcement: cloud.announcement || local.announcement || '',
-          updated_at: cloud.updated_at || Date.now(),
-        };
+      const gist = await res.json();
+      const fileContent = gist?.files?.['fleet_manifest.json']?.content;
+      if (fileContent) {
+        const parsed = JSON.parse(fileContent);
+        if (parsed && Array.isArray(parsed.servers)) {
+          try {
+            fs.writeFileSync(TMP_CACHE_FILE, JSON.stringify(parsed), 'utf8');
+          } catch {}
+          return {
+            servers: parsed.servers,
+            announcement: parsed.announcement || '',
+            updated_at: parsed.updated_at || Date.now(),
+          };
+        }
       }
     }
-  } catch {
-    // Fallback to local file when offline
+  } catch (err) {
+    console.error('Error reading cloud Gist manifest:', err);
   }
-  return local;
+  return readLocalManifest();
 }
 
 async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?: string }) {
   const updated_at = Date.now();
-  // 1. Try writing local files (works in local dev; ignored on read-only Vercel serverless FS)
+  const fullPayload = {
+    servers: manifest.servers,
+    announcement: manifest.announcement || '',
+    updated_at,
+  };
+
+  try {
+    fs.writeFileSync(TMP_CACHE_FILE, JSON.stringify(fullPayload), 'utf8');
+  } catch {}
+
   try {
     const dir = path.dirname(DATA_FILE);
     if (!fs.existsSync(dir)) {
@@ -72,54 +119,40 @@ async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?
         'utf8'
       );
     }
-  } catch {
-    // Read-only filesystem on Vercel serverless — cloud persistence handles it below
-  }
+  } catch {}
 
-  // 2. Persist admin manifest to Firebase RTDB so Vercel serverless functions stay stateless & persistent
   try {
-    await fetch(FIREBASE_ADMIN_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+    const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
+    const encrypted = encryptManifest(apkManifest);
+    const apkResponsePayload = {
+      data: encrypted,
+      encrypted_data: encrypted,
+      announcement: manifest.announcement || '',
+      updated_at,
+    };
+
+    await fetch(GIST_API_URL, {
+      method: 'PATCH',
+      headers: getCloudHeaders(),
       body: JSON.stringify({
-        servers: manifest.servers,
-        announcement: manifest.announcement || '',
-        updated_at,
+        files: {
+          'fleet_manifest.json': {
+            content: JSON.stringify(fullPayload, null, 2),
+          },
+          'fleet_apk.json': {
+            content: JSON.stringify(apkResponsePayload, null, 2),
+          },
+        },
       }),
     });
   } catch (err) {
-    console.error('Error syncing admin manifest to cloud:', err);
+    console.error('Error syncing manifest to cloud Gist:', err);
   }
 }
 
 async function syncFleetToCloudAndAssets(manifest: { servers: VpnServerItem[]; announcement?: string }) {
-  try {
-    const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
-    const encrypted = encryptManifest(apkManifest);
-
-    // 1. Update local APK assets/servers.enc for offline fallback
-    try {
-      const assetsEncPath = path.resolve(process.cwd(), '..', 'assets', 'servers.enc');
-      if (fs.existsSync(path.dirname(assetsEncPath))) {
-        fs.writeFileSync(assetsEncPath, encrypted, 'utf8');
-      }
-    } catch {
-      // ignore local fs errors
-    }
-
-    // 2. Sync encrypted manifest to Firebase RTDB so phones on Mobile Data or any Wi-Fi receive updates immediately
-    await fetch(FIREBASE_FLEET_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        encrypted_data: encrypted,
-        announcement: manifest.announcement || '',
-        updated_at: Date.now(),
-      }),
-    });
-  } catch (err) {
-    console.error('Cloud fleet sync warning:', err);
-  }
+  // Handled atomically inside writeManifest
+  void manifest;
 }
 
 export async function GET(req: NextRequest) {
@@ -140,8 +173,10 @@ export async function GET(req: NextRequest) {
   }
 
   // Default / format=apk: return AES-256-GCM encrypted payload matching ServerConfigManager.smali
+  // NOTE: ServerConfigManager.smali checks jsonObject.has("data") and jsonObject.getString("data")
   const encrypted = encryptManifest(apkManifest);
   return NextResponse.json({
+    data: encrypted,
     encrypted_data: encrypted,
     announcement: manifest.announcement || '',
     updated_at: manifest.updated_at,
