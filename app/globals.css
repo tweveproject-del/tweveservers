@@ -2535,6 +2535,102 @@ input:user-invalid {
 }
 
 
+/* Modern web guidance polish & Typography system */
+:root {
+  color-scheme: dark;
+  --target-size: 24px;
+}
+
+@media (pointer: coarse) {
+  :root { --target-size: 44px; }
+}
+
+body {
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+  font-size-adjust: from-font;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  line-height: 1.5;
+  text-align: start;
+  overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size-adjust: cap-height from-font;
+  text-wrap: balance;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+h1 {
+  font-size: clamp(1.05rem, 0.9rem + 0.65vw, 1.45rem);
+  font-weight: 800;
+}
+
+h2 {
+  font-size: clamp(0.98rem, 0.88rem + 0.45vw, 1.25rem);
+  font-weight: 800;
+}
+
+p, li, blockquote {
+  text-wrap: pretty;
+  max-width: 68ch;
+  line-height: 1.55;
+}
+
+code,
+pre,
+.font-mono,
+.input-textarea-modern {
+  font-family: var(--font-mono), "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace !important;
+  font-size-adjust: from-font;
+  font-variant-ligatures: none;
+}
+
+.kpi-stat-box span[style*="monospace"] {
+  font-family: var(--font-mono), "JetBrains Mono", monospace !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+@supports not (font-size-adjust: from-font) {
+  body {
+    line-height: 1.55;
+  }
+  code, pre, .font-mono {
+    font-size: 0.92em;
+    line-height: 1.5;
+  }
+}
+
+:where(button, select, textarea, input:not([type="checkbox"], [type="radio"])) {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #22d3ee !important;
+  outline-offset: 2px;
+}
+
+input:user-invalid {
+  border-color: #fb7185 !important;
+}
+
+.fleet-shell {
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Three KPI cards: Connected, Active Nodes, Traffic */
 .fleet-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1023px) {
