@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyAdminRequest } from '../../lib/auth';
 
 interface UserSession {
   deviceId: string;
@@ -16,6 +17,10 @@ interface UserSession {
 const sessions = new Map<string, UserSession>();
 
 export async function GET(req: NextRequest) {
+  const auth = verifyAdminRequest(req);
+  if (!auth.valid) {
+    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+  }
   const now = Date.now();
 
   // Expire inactive device sessions older than 5 minutes (300,000 ms)

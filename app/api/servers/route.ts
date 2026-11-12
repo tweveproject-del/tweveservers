@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { convertToApkServerStructure, encryptManifest } from '../../lib/crypto';
 import { VpnServerItem } from '../../lib/types';
+import { verifyAdminRequest } from '../../lib/auth';
 import fs from 'fs';
 import path from 'path';
 
@@ -158,6 +159,15 @@ async function syncFleetToCloudAndAssets(manifest: { servers: VpnServerItem[]; a
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const format = searchParams.get('format');
+
+  // Protect raw admin & raw_apk formats: require authenticated admin session
+  if (format === 'admin' || format === 'raw_apk') {
+    const auth = verifyAdminRequest(req);
+    if (!auth.valid) {
+      return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+    }
+  }
+
   const manifest = await readManifest();
 
   // If format=admin, return raw server objects for the dashboard UI
@@ -184,6 +194,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = verifyAdminRequest(req);
+  if (!auth.valid) {
+    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+  }
   try {
     const body = await req.json();
     const manifest = await readManifest();
@@ -270,6 +284,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const auth = verifyAdminRequest(req);
+  if (!auth.valid) {
+    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+  }
   try {
     const body = await req.json();
     const manifest = await readManifest();
@@ -298,6 +316,10 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = verifyAdminRequest(req);
+  if (!auth.valid) {
+    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+  }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const manifest = await readManifest();

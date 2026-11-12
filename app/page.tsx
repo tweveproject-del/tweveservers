@@ -166,6 +166,16 @@ interface FleetAnalytics {
 }
 
 export default function TweveServerFleetAdmin() {
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [loginEmailInput, setLoginEmailInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [allowedEmails, setAllowedEmails] = useState<string[]>([]);
+  const [showAdminDbPanel, setShowAdminDbPanel] = useState(false);
+  const [newAdminEmailInput, setNewAdminEmailInput] = useState('');
+
   const [servers, setServers] = useState<VpnServerItem[]>([]);
   const [announcement, setAnnouncement] = useState('');
   const [loading, setLoading] = useState(true);
@@ -240,6 +250,10 @@ export default function TweveServerFleetAdmin() {
   const fetchServers = useCallback(async () => {
     try {
       const res = await fetch('/api/servers?format=admin', { cache: 'no-store' });
+      if (res.status === 401) {
+        setIsAuthenticated(false);
+        return;
+      }
       const data = await res.json();
       setServers(data.servers || []);
       setAnnouncement(data.announcement || '');
@@ -263,11 +277,118 @@ export default function TweveServerFleetAdmin() {
   }, []);
 
   useEffect(() => {
-    fetchServers();
-    fetchAnalytics();
-    const interval = setInterval(fetchAnalytics, 5000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    (async () => {
+      try {
+        const res = await fetch('/api/auth', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            setIsAuthenticated(true);
+            setAdminEmail(data.email || '');
+            setAllowedEmails(data.allowedEmails || []);
+            fetchServers();
+            fetchAnalytics();
+            interval = setInterval(fetchAnalytics, 5000);
+          }
+        }
+      } catch {
+        // not authenticated
+      } finally {
+        setAuthChecking(false);
+      }
+    })();
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [fetchServers, fetchAnalytics]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    const trimmed = loginEmailInput.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes('@')) {
+      setLoginError('Please enter a valid admin email address.');
+      return;
+    }
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', email: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.authenticated) {
+        setLoginError(data.error || 'Access denied: Email not found in authorized DB.');
+      } else {
+        setIsAuthenticated(true);
+        setAdminEmail(data.email);
+        setAllowedEmails(data.allowedEmails || []);
+        setLoginEmailInput('');
+        fetchServers();
+        fetchAnalytics();
+      }
+    } catch {
+      setLoginError('Network error verifying admin credentials.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth', { method: 'DELETE' });
+    } catch {}
+    setIsAuthenticated(false);
+    setAdminEmail('');
+    setServers([]);
+  };
+
+  const handleAddAdminEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const target = newAdminEmailInput.trim().toLowerCase();
+    if (!target || !target.includes('@')) {
+      notify('error', 'Enter a valid email address to add to DB');
+      return;
+    }
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add_email', email: target }),
+      });
+      const data = await res.json();
+      if (res.ok && data.allowedEmails) {
+        setAllowedEmails(data.allowedEmails);
+        setNewAdminEmailInput('');
+        notify('success', `Added ${target} to authorized DB`);
+      } else {
+        notify('error', data.error || 'Failed to add email');
+      }
+    } catch {
+      notify('error', 'Failed to update admin DB');
+    }
+  };
+
+  const handleRemoveAdminEmail = async (target: string) => {
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove_email', email: target }),
+      });
+      const data = await res.json();
+      if (res.ok && data.allowedEmails) {
+        setAllowedEmails(data.allowedEmails);
+        notify('success', `Removed ${target} from authorized DB`);
+      } else {
+        notify('error', data.error || 'Cannot remove email');
+      }
+    } catch {
+      notify('error', 'Failed to update admin DB');
+    }
+  };
 
   // Quick-Import Parser for VLESS / VMess / Trojan / Hysteria2 / SlowDNS / WireGuard URIs
   const handleParseRawUri = (raw: string) => {
@@ -551,6 +672,153 @@ export default function TweveServerFleetAdmin() {
   const needsSniField = ['ssh_ssl', 'ssh_ssl_payload', 'http_proxy_ssl_payload'].includes(formProtocol);
   const needsProxyFields = ['http_proxy', 'http_proxy_payload', 'http_proxy_ssl_payload'].includes(formProtocol);
 
+  if (authChecking) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          backgroundColor: '#020617',
+          color: '#f8fafc',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.95rem' }}>
+          <Shield style={{ width: '1.35rem', height: '1.35rem', color: '#34d399' }} />
+          <span>Verifying Tweve Fleet Security Session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          backgroundColor: '#020617',
+          backgroundImage:
+            'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.14), transparent 55%), radial-gradient(circle at 85% 90%, rgba(56, 189, 248, 0.1), transparent 45%)',
+          color: '#f8fafc',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1.5rem',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: '430px',
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            border: '1px solid rgba(56, 189, 248, 0.22)',
+            borderRadius: '1.25rem',
+            padding: '2.25rem 2rem',
+            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.65)',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.75rem' }}>
+            <div
+              style={{
+                width: '3.5rem',
+                height: '3.5rem',
+                borderRadius: '1rem',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
+                border: '1px solid rgba(16, 185, 129, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '1rem',
+                boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
+              }}
+            >
+              <Lock style={{ width: '1.65rem', height: '1.65rem', color: '#34d399' }} />
+            </div>
+            <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+              TWEVE SERVER FLEET
+            </h1>
+            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.35rem' }}>
+              Protected Admin Console • Authorized DB Email Required
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+            <div>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  color: '#cbd5e1',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '0.45rem',
+                }}
+              >
+                Authorized Admin Email
+              </label>
+              <input
+                type="email"
+                required
+                autoFocus
+                value={loginEmailInput}
+                onChange={(e) => setLoginEmailInput(e.target.value)}
+                placeholder="Enter email registered in DB..."
+                className="input-fleet"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            {loginError && (
+              <div
+                style={{
+                  padding: '0.75rem 0.95rem',
+                  borderRadius: '0.75rem',
+                  backgroundColor: 'rgba(244, 63, 94, 0.14)',
+                  border: '1px solid rgba(244, 63, 94, 0.4)',
+                  color: '#fda4af',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                }}
+              >
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="btn-fleet-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '0.8rem 1rem' }}
+            >
+              <Shield style={{ width: '1rem', height: '1rem' }} />
+              <span>{loginLoading ? 'Verifying DB Allowlist...' : 'Unlock Server Fleet Console'}</span>
+            </button>
+          </form>
+
+          <div
+            style={{
+              marginTop: '1.5rem',
+              paddingTop: '1.1rem',
+              borderTop: '1px solid rgba(148, 163, 184, 0.12)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.45rem',
+              fontSize: '0.72rem',
+              color: '#64748b',
+            }}
+          >
+            <KeyRound style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
+            <span>AES-256-GCM Encrypted APK Feed • HMAC-SHA256 Session</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#020617', color: '#f8fafc', paddingBottom: '4rem' }}>
       {/* Top Navbar */}
@@ -612,12 +880,20 @@ export default function TweveServerFleetAdmin() {
                 </span>
               </div>
               <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                Encrypted Multi-Protocol VPN Server Deployment & Real-Time Telemetry Suite
+                Signed in as <strong style={{ color: '#38bdf8' }}>{adminEmail}</strong>
               </p>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setShowAdminDbPanel((v) => !v)}
+              className="btn-fleet-secondary"
+            >
+              <Users style={{ width: '0.9rem', height: '0.9rem', color: '#a78bfa' }} />
+              <span>DB Emails ({allowedEmails.length})</span>
+            </button>
             <button type="button" onClick={handleSaveAnnouncement} className="btn-fleet-secondary">
               <RefreshCw style={{ width: '0.9rem', height: '0.9rem', color: '#34d399' }} />
               <span>Sync Fleet to Cloud & App</span>
@@ -625,6 +901,10 @@ export default function TweveServerFleetAdmin() {
             <button type="button" onClick={copyApkEndpoint} className="btn-fleet-secondary">
               <Copy style={{ width: '0.9rem', height: '0.9rem', color: '#38bdf8' }} />
               <span>Copy APK Feed URL</span>
+            </button>
+            <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
+              <Lock style={{ width: '0.9rem', height: '0.9rem', color: '#fb7185' }} />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -640,6 +920,84 @@ export default function TweveServerFleetAdmin() {
           gap: '1.5rem',
         }}
       >
+        {showAdminDbPanel && (
+          <div
+            style={{
+              padding: '1.25rem 1.5rem',
+              borderRadius: '1rem',
+              backgroundColor: 'rgba(15, 23, 42, 0.92)',
+              border: '1px solid rgba(167, 139, 250, 0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ffffff' }}>
+                  Authorized Admin Emails in Database (`data/admins.json` & Cloud DB)
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Only emails listed below can sign in to view or modify the Tweve Server Fleet.
+                </p>
+              </div>
+              <form onSubmit={handleAddAdminEmail} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input
+                  type="email"
+                  required
+                  value={newAdminEmailInput}
+                  onChange={(e) => setNewAdminEmailInput(e.target.value)}
+                  placeholder="new-admin@email.com"
+                  className="input-fleet"
+                  style={{ width: '240px' }}
+                />
+                <button type="submit" className="btn-fleet-primary">
+                  <PlusCircle style={{ width: '0.9rem', height: '0.9rem' }} />
+                  <span>Add Email to DB</span>
+                </button>
+              </form>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {allowedEmails.map((em) => (
+                <div
+                  key={em}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '9999px',
+                    backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                    border: '1px solid rgba(148, 163, 184, 0.25)',
+                    fontSize: '0.78rem',
+                    color: '#e2e8f0',
+                  }}
+                >
+                  <span>{em}</span>
+                  {allowedEmails.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAdminEmail(em)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#fb7185',
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                      title="Remove email from DB"
+                    >
+                      <Trash2 style={{ width: '0.8rem', height: '0.8rem' }} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {notification && (
           <div
             style={{
