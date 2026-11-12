@@ -72,7 +72,7 @@ export interface VpnServerItem {
   slipstreamDirect?: boolean;
   // WireGuard
   wireguardConfig?: string;
-  // Protection, Expiration & Telemetry
+  // Protection, Expiration, Packages & Telemetry
   isLocked: boolean; // Protect configuration from user inspection
   isActive: boolean;
   expiresAt?: number | null; // Unix timestamp in ms (null or 0 = never expires)
@@ -80,7 +80,73 @@ export interface VpnServerItem {
   expireDurationUnit?: 'never' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'custom';
   expireAction?: 'delete' | 'hide'; // 'delete' = auto-remove from DB on expiry, 'hide' = hide from users & keep in admin
   isExpired?: boolean;
+  // Paid Package / PressoPay Pricing Configuration
+  requiresPackage?: boolean; // true if server requires a paid package (default true for PREMIUM / VIP)
+  packagePricingMode?: 'none' | 'default' | 'custom_both' | 'only_7d' | 'only_30d';
+  price7DaysTzs?: number | null; // e.g. 2700 TZS
+  price30DaysTzs?: number | null; // e.g. 8500 TZS
   connectedUsersCount?: number;
   createdAt?: number;
   updatedAt?: number;
+}
+
+export interface ServerPackageOption {
+  id?: '7d' | '30d';
+  planId: '7d' | '30d';
+  label: string;
+  days?: 7 | 30;
+  durationDays: 7 | 30;
+  priceTzs: number;
+}
+
+export interface PaymentOrderRecord {
+  orderId: string;
+  pressoReference: string;
+  serverId: string;
+  serverName: string;
+  serverCountry?: string;
+  serverProtocol?: string;
+  planId: '7d' | '30d';
+  durationDays: 7 | 30;
+  amountTzs: number;
+  currency: 'TZS';
+  buyerName: string;
+  buyerPhone: string;
+  buyerEmail: string;
+  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  checkoutUrl?: string;
+  pushFailed?: boolean;
+  accessKey?: string;
+  subscriptionExpiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface SubscriptionRecord {
+  accessKey: string;
+  orderId: string;
+  pressoReference: string;
+  serverId: string;
+  serverName: string;
+  planId: '7d' | '30d';
+  durationDays: 7 | 30;
+  amountTzs: number;
+  buyerName: string;
+  buyerPhone: string;
+  buyerEmail: string;
+  status: 'active' | 'expired' | 'revoked';
+  tier: 'PREMIUM' | 'VIP';
+  createdAt: number;
+  expiresAt: number;
+  maxDevices: number;
+  devices?: Record<
+    string,
+    {
+      hwid: string;
+      label: string;
+      details: string;
+      updatedAt: number;
+    }
+  >;
 }

@@ -41,17 +41,42 @@ export function decryptManifest(base64Blob: string): any {
  *   "announcement": "..."
  * }
  */
-export function convertToApkServerStructure(servers: any[], announcement = '') {
+export function convertToApkServerStructure(
+  servers: any[],
+  announcement = '',
+  activeSubscription?: { serverId?: string; status?: string; expiresAt?: number } | null
+) {
   const apkServers: any[] = [];
   const apkConfigs: Record<string, any> = {};
 
   const now = Date.now();
+  const hasValidSub = Boolean(
+    activeSubscription &&
+      activeSubscription.status === 'active' &&
+      Number(activeSubscription.expiresAt || 0) > now
+  );
+
   for (const s of servers) {
     if (s.isActive === false || s.isExpired === true) continue;
     if (s.expiresAt && Number(s.expiresAt) > 0 && now >= Number(s.expiresAt)) continue;
 
     const configId = `cfg_${s.id}`;
-    const tierStr = (s.tier || 'FREE').toLowerCase(); // "free", "vip", "premium"
+    const rawTier = (s.tier || 'FREE').toUpperCase();
+    const isPaidServer = Boolean(s.requiresPackage || rawTier === 'VIP' || rawTier === 'PREMIUM');
+    const isUnlockedBySub =
+      hasValidSub &&
+      (activeSubscription?.serverId === 'ALL' ||
+        activeSubscription?.serverId === s.id ||
+        rawTier === 'VIP' ||
+        rawTier === 'PREMIUM');
+
+    const tierStr = isPaidServer
+      ? isUnlockedBySub
+        ? 'free'
+        : rawTier === 'VIP'
+          ? 'vip'
+          : 'premium'
+      : 'free';
 
     // Map protocol to APK connectionType:
     // 0 = SSH Direct
@@ -190,10 +215,14 @@ export function convertToApkServerStructure(servers: any[], announcement = '') {
       slipstreamDomain: s.slipstreamDomain || s.dnsttNameserver || '',
       slipstreamCert: s.slipstreamCert || s.dnsttPubkey || '',
       slipstreamDirect: Boolean(s.slipstreamDirect),
-      // Protection & Expiration flags
+      // Protection, Expiration & Package Pricing flags
       isLocked: Boolean(s.isLocked),
       expiresAt: s.expiresAt ? Number(s.expiresAt) : 0,
       expireAction: s.expireAction || 'delete',
+      requiresPackage: isPaidServer,
+      packagePricingMode: s.packagePricingMode || (isPaidServer ? 'default' : 'none'),
+      price7DaysTzs: s.price7DaysTzs !== undefined ? Number(s.price7DaysTzs) : 2700,
+      price30DaysTzs: s.price30DaysTzs !== undefined ? Number(s.price30DaysTzs) : 8500,
     };
 
     const apkConfig: Record<string, any> = {

@@ -320,6 +320,44 @@ export default function TweveServerFleetAdmin() {
   const [expireAction, setExpireAction] = useState<'delete' | 'hide'>('delete');
   const [nowTs, setNowTs] = useState<number>(() => Date.now());
 
+  // Premium Package & PressoPay Pricing State (Admin Form)
+  const [requiresPackage, setRequiresPackage] = useState(false);
+  const [packagePricingMode, setPackagePricingMode] = useState<
+    'none' | 'default' | 'custom_both' | 'only_7d' | 'only_30d'
+  >('default');
+  const [price7DaysTzs, setPrice7DaysTzs] = useState('2700');
+  const [price30DaysTzs, setPrice30DaysTzs] = useState('8500');
+
+  // Admin PressoPay Gateway & Orders State
+  const [gatewayInfo, setGatewayInfo] = useState<{
+    apiKeyMasked: string;
+    hasSecret: boolean;
+    baseUrl: string;
+    defaultPrice7Days: number;
+    defaultPrice30Days: number;
+    currency: string;
+  } | null>(null);
+  const [default7dInput, setDefault7dInput] = useState('2700');
+  const [default30dInput, setDefault30dInput] = useState('8500');
+  const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
+  const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
+  const [savingGateway, setSavingGateway] = useState(false);
+
+  // Public User Store View State ('store' | 'admin')
+  const [publicMode, setPublicMode] = useState<'store' | 'admin'>('admin');
+  const [storeServers, setStoreServers] = useState<any[]>([]);
+  const [storeLoading, setStoreLoading] = useState(false);
+  const [selectedStoreServerId, setSelectedStoreServerId] = useState<string>('');
+  const [selectedPackageId, setSelectedPackageId] = useState<'7d' | '30d'>('7d');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [buyerName, setBuyerName] = useState('');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [activeOrder, setActiveOrder] = useState<any | null>(null);
+  const [lookupInput, setLookupInput] = useState('');
+  const [lookupResults, setLookupResults] = useState<any[] | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
   const notify = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 5000);
@@ -354,6 +392,58 @@ export default function TweveServerFleetAdmin() {
     }
   }, []);
 
+  const fetchPaymentsAdmin = useCallback(async () => {
+    try {
+      const res = await fetch('/api/payments?format=admin', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.gateway) {
+          setGatewayInfo(data.gateway);
+          setDefault7dInput(String(data.gateway.defaultPrice7Days || 2700));
+          setDefault30dInput(String(data.gateway.defaultPrice30Days || 8500));
+        }
+        setPaymentOrders(data.orders || []);
+        setSubscriptionsList(data.subscriptions || []);
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const fetchStoreCatalog = useCallback(async () => {
+    setStoreLoading(true);
+    try {
+      const res = await fetch('/api/servers?format=store', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const list = (data.servers || []).filter(
+          (s: any) => s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM'
+        );
+        const finalList = list.length > 0 ? list : data.servers || [];
+        setStoreServers(finalList);
+        if (finalList.length > 0 && !selectedStoreServerId) {
+          setSelectedStoreServerId(finalList[0].id);
+          const pkgs = finalList[0].packages || [];
+          if (pkgs.length > 0) setSelectedPackageId(pkgs[0].id);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setStoreLoading(false);
+    }
+  }, [selectedStoreServerId]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('view') === 'store' || params.get('buy') === '1') {
+        setPublicMode('store');
+      }
+    }
+    fetchStoreCatalog();
+  }, [fetchStoreCatalog]);
+
   useEffect(() => {
     preloadRecaptcha();
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -367,7 +457,11 @@ export default function TweveServerFleetAdmin() {
             setAdminEmail(data.email || '');
             fetchServers();
             fetchAnalytics();
-            interval = setInterval(fetchAnalytics, 5000);
+            fetchPaymentsAdmin();
+            interval = setInterval(() => {
+              fetchAnalytics();
+              fetchPaymentsAdmin();
+            }, 5000);
           }
         }
       } catch {
@@ -379,7 +473,118 @@ export default function TweveServerFleetAdmin() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [fetchServers, fetchAnalytics]);
+  }, [fetchServers, fetchAnalytics, fetchPaymentsAdmin]);
+
+  // Poll PressoPay payment order verification while an order is PENDING
+  useEffect(() => {
+    if (!activeOrder || activeOrder.status !== 'PENDING' || !activeOrder.pressoReference) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/payments?reference=${encodeURIComponent(activeOrder.pressoReference)}`,
+          { cache: 'no-store' }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.order) {
+            setActiveOrder(data.order);
+            if (data.order.status === 'COMPLETED') {
+              clearInterval(poll);
+            }
+          }
+        }
+      } catch {
+        // retry next tick
+      }
+    }, 3500);
+    return () => clearInterval(poll);
+  }, [activeOrder]);
+
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCheckoutError('');
+    if (!selectedStoreServerId) {
+      setCheckoutError('Please select a server to purchase.');
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      setCheckoutError('Please enter your Mobile Money phone number (e.g. 07XXXXXXXX).');
+      return;
+    }
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'checkout',
+          serverId: selectedStoreServerId,
+          packageId: selectedPackageId,
+          buyerPhone: buyerPhone.trim(),
+          buyerName: buyerName.trim() || 'Tweve VPN Customer',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setCheckoutError(data.error || 'Could not initiate PressoPay checkout.');
+      } else {
+        setActiveOrder(data.order);
+      }
+    } catch (err: any) {
+      setCheckoutError(err.message || 'Network error initiating payment.');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  const handleLookupSubscriptions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = lookupInput.trim();
+    if (!q) return;
+    setLookupLoading(true);
+    try {
+      const isKey = q.toUpperCase().startsWith('TWV-');
+      const url = isKey
+        ? `/api/payments?key=${encodeURIComponent(q.toUpperCase())}`
+        : `/api/payments?phone=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const data = await res.json();
+      if (isKey) {
+        setLookupResults(data.subscription ? [data.subscription] : []);
+      } else {
+        setLookupResults(data.subscriptions || []);
+      }
+    } catch {
+      setLookupResults([]);
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const handleSaveGatewayDefaults = async () => {
+    setSavingGateway(true);
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          defaultPrice7Days: Number(default7dInput || 2700),
+          defaultPrice30Days: Number(default30dInput || 8500),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        notify('success', 'Updated PressoPay default package prices in Firebase DB!');
+        fetchPaymentsAdmin();
+      } else {
+        notify('error', data.error || 'Failed to update gateway defaults');
+      }
+    } catch {
+      notify('error', 'Network error updating gateway settings');
+    } finally {
+      setSavingGateway(false);
+    }
+  };
 
   // Live 1-second countdown ticker & automatic expiration sync trigger
   useEffect(() => {
@@ -513,6 +718,19 @@ export default function TweveServerFleetAdmin() {
     } else {
       setExpireCustomDate('');
     }
+    const isPaid = Boolean(
+      s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM'
+    );
+    setRequiresPackage(isPaid);
+    setPackagePricingMode(
+      s.packagePricingMode && s.packagePricingMode !== 'none'
+        ? s.packagePricingMode
+        : isPaid
+          ? 'default'
+          : 'none'
+    );
+    setPrice7DaysTzs(String(s.price7DaysTzs ?? (gatewayInfo?.defaultPrice7Days || 2700)));
+    setPrice30DaysTzs(String(s.price30DaysTzs ?? (gatewayInfo?.defaultPrice30Days || 8500)));
     if (mobileViewTab === 'fleet') {
       setMobileViewTab('deploy');
     }
@@ -692,6 +910,21 @@ export default function TweveServerFleetAdmin() {
               ? new Date(expireCustomDate).getTime()
               : undefined,
         expireAction,
+        requiresPackage: Boolean(requiresPackage || tier === 'VIP' || tier === 'PREMIUM'),
+        packagePricingMode:
+          requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+            ? packagePricingMode === 'none'
+              ? 'default'
+              : packagePricingMode
+            : 'none',
+        price7DaysTzs:
+          packagePricingMode === 'default'
+            ? Number(gatewayInfo?.defaultPrice7Days || 2700)
+            : Number(price7DaysTzs || 2700),
+        price30DaysTzs:
+          packagePricingMode === 'default'
+            ? Number(gatewayInfo?.defaultPrice30Days || 8500)
+            : Number(price30DaysTzs || 8500),
       };
 
       const res = await fetch('/api/servers', {
@@ -853,7 +1086,19 @@ export default function TweveServerFleetAdmin() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || publicMode === 'store') {
+    const selectedStoreServer =
+      storeServers.find((s) => s.id === selectedStoreServerId) || storeServers[0] || null;
+    const serverPackages: Array<{ id: '7d' | '30d'; label: string; days: number; priceTzs: number }> =
+      selectedStoreServer?.packages && selectedStoreServer.packages.length > 0
+        ? selectedStoreServer.packages
+        : [
+            { id: '7d', label: '7 Days', days: 7, priceTzs: 2700 },
+            { id: '30d', label: '30 Days (1 Month)', days: 30, priceTzs: 8500 },
+          ];
+    const activePkg =
+      serverPackages.find((p) => p.id === selectedPackageId) || serverPackages[0];
+
     return (
       <div
         style={{
@@ -863,11 +1108,409 @@ export default function TweveServerFleetAdmin() {
             'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 55%), radial-gradient(circle at 85% 90%, rgba(56, 189, 248, 0.12), transparent 45%)',
           color: '#f8fafc',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem',
+          justifyContent: 'flex-start',
+          padding: '1.25rem 1rem 3rem',
         }}
       >
+        {/* Top Mode Switcher: Buy Premium Server vs Admin Login */}
+        <div
+          style={{
+            display: 'flex',
+            gap: '0.45rem',
+            padding: '0.32rem',
+            borderRadius: '0.85rem',
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            border: '1px solid rgba(56, 189, 248, 0.22)',
+            marginBottom: '1.25rem',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setPublicMode('store');
+              fetchStoreCatalog();
+            }}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.65rem',
+              fontSize: '0.76rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              background:
+                publicMode === 'store'
+                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                  : 'transparent',
+              color: publicMode === 'store' ? '#ffffff' : '#94a3b8',
+              border: 'none',
+            }}
+          >
+            💎 Buy Premium Server
+          </button>
+          <button
+            type="button"
+            onClick={() => setPublicMode('admin')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '0.65rem',
+              fontSize: '0.76rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              background:
+                publicMode === 'admin'
+                  ? 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)'
+                  : 'transparent',
+              color: publicMode === 'admin' ? '#ffffff' : '#94a3b8',
+              border: 'none',
+            }}
+          >
+            {isAuthenticated ? '⚙️ Back to Admin Console' : '🔒 Admin Login'}
+          </button>
+        </div>
+
+        {publicMode === 'store' ? (
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '720px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1.15rem',
+            }}
+          >
+            <div className="fleet-card" style={{ padding: '1.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.15rem' }}>
+                <div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.2rem 0.65rem', borderRadius: '9999px', background: 'rgba(16, 185, 129, 0.16)', border: '1px solid rgba(16, 185, 129, 0.4)', color: '#34d399', fontSize: '0.68rem', fontWeight: 800, marginBottom: '0.45rem' }}>
+                    <Zap style={{ width: '0.75rem', height: '0.75rem' }} />
+                    <span>INSTANT MOBILE MONEY ACTIVATION · PRESSOPAY</span>
+                  </div>
+                  <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff' }}>
+                    Buy Tweve Premium VPN Server Package
+                  </h1>
+                  <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                    Choose your server and duration package below. Pay securely via M-Pesa, Tigo Pesa / Mixx by Yas, Airtel Money, or Halopesa.
+                  </p>
+                </div>
+              </div>
+
+              {/* Active Order Status / Completed Key Banner */}
+              {activeOrder && (
+                <div
+                  style={{
+                    marginBottom: '1.25rem',
+                    padding: '1.1rem',
+                    borderRadius: '0.9rem',
+                    backgroundColor:
+                      activeOrder.status === 'COMPLETED'
+                        ? 'rgba(16, 185, 129, 0.16)'
+                        : activeOrder.status === 'FAILED' || activeOrder.status === 'CANCELLED'
+                          ? 'rgba(244, 63, 94, 0.15)'
+                          : 'rgba(56, 189, 248, 0.14)',
+                    border:
+                      activeOrder.status === 'COMPLETED'
+                        ? '1.5px solid #10b981'
+                        : activeOrder.status === 'FAILED' || activeOrder.status === 'CANCELLED'
+                          ? '1.5px solid #f43f5e'
+                          : '1.5px solid #38bdf8',
+                  }}
+                >
+                  {activeOrder.status === 'COMPLETED' ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#34d399', fontWeight: 800, fontSize: '0.92rem' }}>
+                        <CheckCircle2 style={{ width: '1.15rem', height: '1.15rem' }} />
+                        <span>Payment Verified! Your Premium Server Access Key is Ready:</span>
+                      </div>
+                      <div
+                        style={{
+                          marginTop: '0.75rem',
+                          padding: '0.85rem 1rem',
+                          borderRadius: '0.75rem',
+                          backgroundColor: '#020617',
+                          border: '1px solid rgba(16, 185, 129, 0.45)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '0.75rem',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <code style={{ fontSize: '1.15rem', fontWeight: 800, color: '#34d399', letterSpacing: '0.06em' }}>
+                          {activeOrder.subscriptionKey}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(activeOrder.subscriptionKey || '');
+                            notify('success', 'Copied Access Key!');
+                          }}
+                          className="btn-fleet-primary"
+                          style={{ padding: '0.45rem 0.85rem', fontSize: '0.75rem' }}
+                        >
+                          <Copy style={{ width: '0.85rem', height: '0.85rem' }} />
+                          <span>Copy Key</span>
+                        </button>
+                      </div>
+                      <div style={{ marginTop: '0.55rem', fontSize: '0.74rem', color: '#cbd5e1' }}>
+                        Server: <strong>{activeOrder.serverName}</strong> • Package: <strong>{activeOrder.packageLabel}</strong> ({Number(activeOrder.amountTzs).toLocaleString()} TZS) • Open Tweve VPN App → Unlock VIP/Premium → Paste Key.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '0.86rem', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <RefreshCw style={{ width: '0.95rem', height: '0.95rem' }} className={activeOrder.status === 'PENDING' ? 'animate-spin' : ''} />
+                          <span>
+                            {activeOrder.status === 'PENDING'
+                              ? 'USSD Push Sent! Enter your Mobile Money PIN on your phone...'
+                              : `Payment Status: ${activeOrder.status}`}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.25rem', fontFamily: 'monospace' }}>
+                          Ref: {activeOrder.pressoReference} • Amount: {Number(activeOrder.amountTzs).toLocaleString()} TZS • Auto-verifying with PressoPay...
+                        </div>
+                      </div>
+                      {activeOrder.checkoutUrl && activeOrder.status === 'PENDING' && (
+                        <a
+                          href={activeOrder.checkoutUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn-fleet-secondary"
+                          style={{ fontSize: '0.72rem', textDecoration: 'none' }}
+                        >
+                          Open Checkout Page ↗
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <form onSubmit={handleCheckoutSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                {/* Step 1: Select Server */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                    1. Select Premium Server ({storeServers.length} Available)
+                  </label>
+                  {storeLoading ? (
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', padding: '0.75rem' }}>Loading available servers...</div>
+                  ) : storeServers.length === 0 ? (
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', padding: '0.75rem', borderRadius: '0.75rem', background: 'rgba(15,23,42,0.7)' }}>
+                      No servers found in store yet.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.6rem' }}>
+                      {storeServers.map((srv) => {
+                        const active = selectedStoreServer?.id === srv.id;
+                        const cObj = COUNTRIES.find((c) => c.code === srv.country);
+                        const pkgs = srv.packages || [];
+                        return (
+                          <button
+                            key={srv.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedStoreServerId(srv.id);
+                              if (pkgs.length > 0 && !pkgs.some((p: any) => p.id === selectedPackageId)) {
+                                setSelectedPackageId(pkgs[0].id);
+                              }
+                            }}
+                            style={{
+                              textAlign: 'left',
+                              padding: '0.8rem',
+                              borderRadius: '0.8rem',
+                              cursor: 'pointer',
+                              background: active ? 'rgba(16, 185, 129, 0.16)' : 'rgba(15, 23, 42, 0.75)',
+                              border: active ? '1.5px solid #10b981' : '1px solid rgba(56, 189, 248, 0.18)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
+                              <span style={{ fontSize: '0.84rem', fontWeight: 800, color: '#ffffff' }}>
+                                {cObj ? cObj.flag : '🌐'} {srv.name}
+                              </span>
+                              <span style={{ fontSize: '0.62rem', fontWeight: 800, color: '#fbbf24', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(251, 191, 36, 0.15)' }}>
+                                {srv.tier}
+                              </span>
+                            </div>
+                            <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                              {pkgs.map((p: any) => `${p.days}D: ${Number(p.priceTzs).toLocaleString()} TZS`).join(' • ')}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 2: Select Duration Package by Price */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                    2. Choose Duration Package & Price (TZS)
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: serverPackages.length > 1 ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
+                    {serverPackages.map((pkg) => {
+                      const isSel = activePkg?.id === pkg.id;
+                      return (
+                        <button
+                          key={pkg.id}
+                          type="button"
+                          onClick={() => setSelectedPackageId(pkg.id)}
+                          style={{
+                            padding: '0.95rem 1rem',
+                            borderRadius: '0.85rem',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            background: isSel
+                              ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.18))'
+                              : 'rgba(15, 23, 42, 0.8)',
+                            border: isSel ? '2px solid #10b981' : '1px solid rgba(56, 189, 248, 0.2)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.86rem', fontWeight: 800, color: '#ffffff' }}>
+                              {pkg.label}
+                            </span>
+                            {pkg.id === '30d' && (
+                              <span style={{ fontSize: '0.62rem', fontWeight: 800, padding: '0.12rem 0.45rem', borderRadius: '9999px', background: 'rgba(251, 191, 36, 0.2)', color: '#fcd34d' }}>
+                                BEST VALUE
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ marginTop: '0.35rem', fontSize: '1.3rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
+                            {Number(pkg.priceTzs).toLocaleString()} TZS
+                          </div>
+                          <div style={{ marginTop: '0.15rem', fontSize: '0.68rem', color: '#94a3b8' }}>
+                            Full high-speed access for {pkg.days} days
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Step 3: Mobile Money Phone Number */}
+                <div className="fleet-form-grid">
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
+                      3. Mobile Money Phone Number (TZ) *
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      value={buyerPhone}
+                      onChange={(e) => setBuyerPhone(e.target.value)}
+                      placeholder="07XXXXXXXX or 06XXXXXXXX"
+                      style={{ fontFamily: 'monospace', fontSize: '0.9rem' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>
+                      Your Name (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={buyerName}
+                      onChange={(e) => setBuyerName(e.target.value)}
+                      placeholder="e.g. Juma"
+                    />
+                  </div>
+                </div>
+
+                {checkoutError && (
+                  <div style={{ padding: '0.75rem 0.9rem', borderRadius: '0.75rem', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#fda4af', fontSize: '0.78rem', fontWeight: 600 }}>
+                    {checkoutError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={checkoutLoading || !selectedStoreServer}
+                  className="btn-fleet-primary"
+                  style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', fontSize: '0.88rem' }}
+                >
+                  <Zap style={{ width: '1.05rem', height: '1.05rem' }} />
+                  <span>
+                    {checkoutLoading
+                      ? 'Sending USSD Push via PressoPay...'
+                      : `Pay ${Number(activePkg?.priceTzs || 0).toLocaleString()} TZS for ${activePkg?.label || 'Package'}`}
+                  </span>
+                </button>
+              </form>
+            </div>
+
+            {/* Lookup Existing Access Key by Phone or Key */}
+            <div className="fleet-card" style={{ padding: '1.25rem 1.5rem' }}>
+              <h3 style={{ fontSize: '0.92rem', fontWeight: 800, color: '#ffffff' }}>
+                🔑 Recover / Check Existing Access Key
+              </h3>
+              <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.15rem', marginBottom: '0.75rem' }}>
+                Already paid? Enter your phone number (07XXXXXXXX) or Access Key (TWV-XXXX-XXXX-XXXX) to view your active subscription.
+              </p>
+              <form onSubmit={handleLookupSubscriptions} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={lookupInput}
+                  onChange={(e) => setLookupInput(e.target.value)}
+                  placeholder="Enter phone (07XXXXXXXX) or TWV-XXXX-XXXX-XXXX..."
+                  style={{ flex: 1, minWidth: '220px', fontFamily: 'monospace' }}
+                />
+                <button type="submit" disabled={lookupLoading} className="btn-fleet-secondary">
+                  <Search style={{ width: '0.85rem', height: '0.85rem' }} />
+                  <span>{lookupLoading ? 'Checking...' : 'Find My Key'}</span>
+                </button>
+              </form>
+
+              {lookupResults && (
+                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {lookupResults.length === 0 ? (
+                    <div style={{ fontSize: '0.75rem', color: '#fda4af' }}>
+                      No completed subscriptions found for that phone number or key.
+                    </div>
+                  ) : (
+                    lookupResults.map((sub: any) => (
+                      <div
+                        key={sub.key}
+                        style={{
+                          padding: '0.75rem',
+                          borderRadius: '0.7rem',
+                          backgroundColor: '#020617',
+                          border: '1px solid rgba(16, 185, 129, 0.35)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '0.6rem',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div>
+                          <code style={{ fontSize: '0.92rem', fontWeight: 800, color: '#34d399' }}>
+                            {sub.key}
+                          </code>
+                          <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                            {sub.serverName} • {sub.packageLabel} • Status:{' '}
+                            <strong style={{ color: sub.status === 'active' ? '#34d399' : '#fb7185' }}>
+                              {String(sub.status).toUpperCase()}
+                            </strong>{' '}
+                            • Expires: {new Date(sub.expiresAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(sub.key)}
+                          className="btn-fleet-secondary"
+                          style={{ padding: '0.35rem 0.65rem', fontSize: '0.7rem' }}
+                        >
+                          <Copy style={{ width: '0.75rem', height: '0.75rem' }} />
+                          <span>Copy</span>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
         <div
           className="fleet-card"
           style={{
@@ -1007,6 +1650,7 @@ export default function TweveServerFleetAdmin() {
             </button>
           </form>
         </div>
+        )}
       </div>
     );
   }
@@ -1055,6 +1699,17 @@ export default function TweveServerFleetAdmin() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setPublicMode('store');
+                fetchStoreCatalog();
+              }}
+              className="btn-fleet-secondary"
+            >
+              <Zap style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
+              <span>User Store</span>
+            </button>
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
               <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
               <span>Exit</span>
@@ -1471,10 +2126,24 @@ export default function TweveServerFleetAdmin() {
                     <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
                       Badge Tier
                     </label>
-                    <select value={tier} onChange={(e) => setTier(e.target.value as any)}>
+                    <select
+                      value={tier}
+                      onChange={(e) => {
+                        const nextTier = e.target.value as 'FREE' | 'VIP' | 'PREMIUM';
+                        setTier(nextTier);
+                        if (nextTier === 'VIP' || nextTier === 'PREMIUM') {
+                          setRequiresPackage(true);
+                          if (packagePricingMode === 'none') {
+                            setPackagePricingMode('default');
+                          }
+                        } else {
+                          setRequiresPackage(false);
+                        }
+                      }}
+                    >
                       <option value="FREE">FREE</option>
-                      <option value="VIP">VIP</option>
-                      <option value="PREMIUM">PREMIUM</option>
+                      <option value="VIP">VIP (Paid Package)</option>
+                      <option value="PREMIUM">PREMIUM (Paid Package)</option>
                     </select>
                   </div>
                   <div>
@@ -2048,6 +2717,186 @@ export default function TweveServerFleetAdmin() {
                 </div>
               </div>
 
+              {/* Premium Server Package & PressoPay Pricing Section */}
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.95rem 1.05rem',
+                  borderRadius: '0.9rem',
+                  backgroundColor: '#030712',
+                  border: requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+                    ? '1.5px solid rgba(16, 185, 129, 0.45)'
+                    : '1px solid rgba(56, 189, 248, 0.2)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.6rem',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '0.73rem',
+                        fontWeight: 800,
+                        color: '#34d399',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.07em',
+                      }}
+                    >
+                      💳 Premium Server Package & PressoPay Pricing (TZS)
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                      Configure whether this server requires a paid package, apply default prices (7 Days = {Number(gatewayInfo?.defaultPrice7Days || 2700).toLocaleString()} TZS, 30 Days = {Number(gatewayInfo?.defaultPrice30Days || 8500).toLocaleString()} TZS), custom prices for both, or apply one duration only.
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !requiresPackage;
+                      setRequiresPackage(next);
+                      if (next && tier === 'FREE') setTier('PREMIUM');
+                      if (next && packagePricingMode === 'none') setPackagePricingMode('default');
+                      if (!next && (tier === 'VIP' || tier === 'PREMIUM')) setTier('FREE');
+                    }}
+                    style={{
+                      padding: '0.35rem 0.75rem',
+                      borderRadius: '0.6rem',
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      border:
+                        requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+                          ? '1px solid #10b981'
+                          : '1px solid rgba(148, 163, 184, 0.3)',
+                      background:
+                        requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+                          ? 'rgba(16, 185, 129, 0.18)'
+                          : 'rgba(15, 23, 42, 0.7)',
+                      color:
+                        requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+                          ? '#34d399'
+                          : '#94a3b8',
+                    }}
+                  >
+                    {requiresPackage || tier === 'VIP' || tier === 'PREMIUM'
+                      ? '💎 Requires Paid Package (ON)'
+                      : '🆓 Free Server (No Package Required)'}
+                  </button>
+                </div>
+
+                {(requiresPackage || tier === 'VIP' || tier === 'PREMIUM') && (
+                  <div className="fleet-form-grid-3">
+                    <div>
+                      <label
+                        style={{
+                          fontSize: '0.7rem',
+                          color: '#94a3b8',
+                          display: 'block',
+                          marginBottom: '0.3rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Package & Price Mode
+                      </label>
+                      <select
+                        value={packagePricingMode === 'none' ? 'default' : packagePricingMode}
+                        onChange={(e) => setPackagePricingMode(e.target.value as any)}
+                      >
+                        <option value="default">
+                          Apply Self / Default ({Number(gatewayInfo?.defaultPrice7Days || 2700).toLocaleString()} & {Number(gatewayInfo?.defaultPrice30Days || 8500).toLocaleString()} TZS)
+                        </option>
+                        <option value="custom_both">
+                          Write Custom Prices (Both 7 Days & 30 Days / Month)
+                        </option>
+                        <option value="only_7d">
+                          Apply One Only: 7 Days Package Only
+                        </option>
+                        <option value="only_30d">
+                          Apply One Only: 30 Days (1 Month) Package Only
+                        </option>
+                      </select>
+                    </div>
+
+                    {(packagePricingMode === 'default' ||
+                      packagePricingMode === 'custom_both' ||
+                      packagePricingMode === 'only_7d' ||
+                      packagePricingMode === 'none') && (
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '0.7rem',
+                            color: '#94a3b8',
+                            display: 'block',
+                            marginBottom: '0.3rem',
+                            fontWeight: 600,
+                          }}
+                        >
+                          7 Days Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
+                        </label>
+                        <input
+                          type="number"
+                          min="100"
+                          disabled={packagePricingMode === 'default'}
+                          value={
+                            packagePricingMode === 'default'
+                              ? String(gatewayInfo?.defaultPrice7Days || 2700)
+                              : price7DaysTzs
+                          }
+                          onChange={(e) => setPrice7DaysTzs(e.target.value)}
+                          placeholder="2700"
+                          style={{
+                            fontFamily: 'monospace',
+                            opacity: packagePricingMode === 'default' ? 0.75 : 1,
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {(packagePricingMode === 'default' ||
+                      packagePricingMode === 'custom_both' ||
+                      packagePricingMode === 'only_30d' ||
+                      packagePricingMode === 'none') && (
+                      <div>
+                        <label
+                          style={{
+                            fontSize: '0.7rem',
+                            color: '#94a3b8',
+                            display: 'block',
+                            marginBottom: '0.3rem',
+                            fontWeight: 600,
+                          }}
+                        >
+                          30 Days / Month Price (TZS) {packagePricingMode === 'default' ? '(Default)' : '*'}
+                        </label>
+                        <input
+                          type="number"
+                          min="100"
+                          disabled={packagePricingMode === 'default'}
+                          value={
+                            packagePricingMode === 'default'
+                              ? String(gatewayInfo?.defaultPrice30Days || 8500)
+                              : price30DaysTzs
+                          }
+                          onChange={(e) => setPrice30DaysTzs(e.target.value)}
+                          placeholder="8500"
+                          style={{
+                            fontFamily: 'monospace',
+                            opacity: packagePricingMode === 'default' ? 0.75 : 1,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Action Button Bar */}
               <div
                 style={{
@@ -2392,6 +3241,30 @@ export default function TweveServerFleetAdmin() {
                                       ∞ No Expiry
                                     </span>
                                   )}
+
+                                  {/* Package & Price Badge */}
+                                  {(s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM') && (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.3rem',
+                                        padding: '0.12rem 0.5rem',
+                                        borderRadius: '0.4rem',
+                                        background: 'rgba(16, 185, 129, 0.16)',
+                                        border: '1px solid rgba(16, 185, 129, 0.42)',
+                                        color: '#6ee7b7',
+                                        fontWeight: 800,
+                                      }}
+                                    >
+                                      💳{' '}
+                                      {s.packagePricingMode === 'only_7d'
+                                        ? `7D Only: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS`
+                                        : s.packagePricingMode === 'only_30d'
+                                          ? `30D Only: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`
+                                          : `7D: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS • 30D: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2730,6 +3603,159 @@ export default function TweveServerFleetAdmin() {
                 </div>
               </section>
             )}
+
+            {/* PressoPay Server-Side Gateway & Live Subscriptions Card */}
+            <section className="fleet-card fleet-section-pad">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.6rem',
+                  paddingBottom: '0.85rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                  <div
+                    style={{
+                      padding: '0.4rem',
+                      borderRadius: '0.7rem',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                      color: '#34d399',
+                    }}
+                  >
+                    <KeyRound style={{ width: '1.05rem', height: '1.05rem' }} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                      PressoPay Server-Side Gateway & Orders ({paymentOrders.length})
+                    </h3>
+                    <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                      API Key ({gatewayInfo?.apiKeyMasked || 'pk_...'}) & HMAC Secret stored strictly in private Firebase DB
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchPaymentsAdmin}
+                  className="btn-fleet-secondary"
+                  style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
+                >
+                  <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
+                  <span>Sync Payments</span>
+                </button>
+              </div>
+
+              <div className="fleet-form-grid-3" style={{ marginTop: '0.85rem', alignItems: 'end' }}>
+                <div>
+                  <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                    Default 7 Days Price (TZS)
+                  </label>
+                  <input
+                    type="number"
+                    value={default7dInput}
+                    onChange={(e) => setDefault7dInput(e.target.value)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                    Default 30 Days Price (TZS)
+                  </label>
+                  <input
+                    type="number"
+                    value={default30dInput}
+                    onChange={(e) => setDefault30dInput(e.target.value)}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={savingGateway}
+                  onClick={handleSaveGatewayDefaults}
+                  className="btn-fleet-primary"
+                  style={{ justifyContent: 'center' }}
+                >
+                  <span>{savingGateway ? 'Saving...' : 'Save Default Prices'}</span>
+                </button>
+              </div>
+
+              {/* Recent Payment Orders & Issued Keys */}
+              <div style={{ marginTop: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                {paymentOrders.length === 0 ? (
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'center', padding: '1rem' }}>
+                    No PressoPay checkout orders yet. When users purchase a 7-Day or 30-Day server package, orders and issued keys appear here.
+                  </div>
+                ) : (
+                  paymentOrders.slice(0, 12).map((ord: any) => (
+                    <div
+                      key={ord.orderId}
+                      style={{
+                        padding: '0.6rem 0.75rem',
+                        borderRadius: '0.65rem',
+                        backgroundColor: 'rgba(3, 7, 18, 0.8)',
+                        border:
+                          ord.status === 'COMPLETED'
+                            ? '1px solid rgba(16, 185, 129, 0.38)'
+                            : '1px solid rgba(56, 189, 248, 0.16)',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        fontSize: '0.7rem',
+                        fontFamily: 'monospace',
+                      }}
+                    >
+                      <div>
+                        <span style={{ color: '#ffffff', fontWeight: 800 }}>{ord.serverName}</span>
+                        {' • '}
+                        <span style={{ color: '#38bdf8' }}>{ord.packageLabel}</span>
+                        {' • '}
+                        <span style={{ color: '#fcd34d', fontWeight: 800 }}>
+                          {Number(ord.amountTzs).toLocaleString()} TZS
+                        </span>
+                        <div style={{ color: '#94a3b8', fontSize: '0.65rem', marginTop: '0.1rem' }}>
+                          Phone: {ord.buyerPhone} • Ref: {ord.pressoReference}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                        {ord.subscriptionKey && (
+                          <code style={{ color: '#34d399', fontWeight: 800 }}>
+                            {ord.subscriptionKey}
+                          </code>
+                        )}
+                        <span
+                          style={{
+                            padding: '0.1rem 0.45rem',
+                            borderRadius: '0.35rem',
+                            fontWeight: 800,
+                            fontSize: '0.62rem',
+                            background:
+                              ord.status === 'COMPLETED'
+                                ? 'rgba(16, 185, 129, 0.18)'
+                                : ord.status === 'PENDING'
+                                  ? 'rgba(251, 191, 36, 0.16)'
+                                  : 'rgba(244, 63, 94, 0.16)',
+                            color:
+                              ord.status === 'COMPLETED'
+                                ? '#34d399'
+                                : ord.status === 'PENDING'
+                                  ? '#fcd34d'
+                                  : '#fb7185',
+                          }}
+                        >
+                          {ord.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
         </div>
       </main>

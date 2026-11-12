@@ -7,6 +7,21 @@ import {
   FIREBASE_RTDB_URL,
   FIREBASE_PROJECT_ID,
 } from '../../lib/auth';
+import {
+  getPaymentGatewayConfig,
+  getServerPackages,
+  getSubscriptionByKey,
+} from '../../lib/pressopay';
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, X-Admin-Session',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
 
 const FIRESTORE_DOC_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/tweve_fleet/manifest`;
 
@@ -226,7 +241,60 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(manifest);
   }
 
-  const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
+  // If format=store, return public store catalog of servers with package durations & TZS prices
+  // Zero hosts, credentials, payloads, or UUIDs are exposed in format=store!
+  if (format === 'store') {
+    const gateway = await getPaymentGatewayConfig();
+    const now = Date.now();
+    const storeServers = manifest.servers
+      .filter((s) => s.isActive !== false && !s.isExpired && (!s.expiresAt || Number(s.expiresAt) > now))
+      .map((s) => {
+        const isPaid = Boolean(
+          s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM'
+        );
+        const packages = getServerPackages(
+          s,
+          gateway.defaultPrice7Days,
+          gateway.defaultPrice30Days
+        );
+        return {
+          id: s.id,
+          name: s.name,
+          country: s.country || 'TZ',
+          tier: s.tier || 'FREE',
+          protocol: s.protocol,
+          requiresPackage: isPaid,
+          packagePricingMode: s.packagePricingMode || (isPaid ? 'default' : 'none'),
+          price7DaysTzs: s.price7DaysTzs ?? gateway.defaultPrice7Days,
+          price30DaysTzs: s.price30DaysTzs ?? gateway.defaultPrice30Days,
+          packages,
+          expiresAt: s.expiresAt || null,
+          connectedUsersCount: Number(s.connectedUsersCount || 0),
+        };
+      });
+
+    return NextResponse.json(
+      {
+        servers: storeServers,
+        defaultPrice7Days: gateway.defaultPrice7Days,
+        defaultPrice30Days: gateway.defaultPrice30Days,
+        currency: 'TZS',
+        announcement: manifest.announcement || '',
+        updated_at: manifest.updated_at,
+      },
+      { headers: CORS_HEADERS }
+    );
+  }
+
+  // Check if the APK client passed an X-API-Key header for an active paid package subscription
+  const apiKey = (req.headers.get('x-api-key') || searchParams.get('key') || '').trim();
+  const activeSub = apiKey ? await getSubscriptionByKey(apiKey).catch(() => null) : null;
+
+  const apkManifest = convertToApkServerStructure(
+    manifest.servers,
+    manifest.announcement || '',
+    activeSub
+  );
 
   // If format=raw_apk, return the unencrypted APK structure for authenticated admin preview only
   if (format === 'raw_apk') {
@@ -235,12 +303,15 @@ export async function GET(req: NextRequest) {
 
   // Default / format=apk: return AES-256-GCM encrypted payload (zero plaintext server URLs exposed)
   const encrypted = encryptManifest(apkManifest);
-  return NextResponse.json({
-    data: encrypted,
-    encrypted_data: encrypted,
-    announcement: manifest.announcement || '',
-    updated_at: manifest.updated_at,
-  });
+  return NextResponse.json(
+    {
+      data: encrypted,
+      encrypted_data: encrypted,
+      announcement: manifest.announcement || '',
+      updated_at: manifest.updated_at,
+    },
+    { headers: CORS_HEADERS }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -323,6 +394,21 @@ export async function POST(req: NextRequest) {
       expireDurationUnit: body.expireDurationUnit || 'never',
       expireAction: body.expireAction === 'hide' ? 'hide' : 'delete',
       isExpired: Boolean(computedExpiry && computedExpiry > 0 && Date.now() >= computedExpiry),
+      requiresPackage:
+        body.requiresPackage !== undefined
+          ? Boolean(body.requiresPackage)
+          : body.tier === 'VIP' || body.tier === 'PREMIUM',
+      packagePricingMode:
+        body.packagePricingMode ||
+        (body.requiresPackage || body.tier === 'VIP' || body.tier === 'PREMIUM' ? 'default' : 'none'),
+      price7DaysTzs:
+        body.price7DaysTzs !== undefined && body.price7DaysTzs !== null
+          ? Number(body.price7DaysTzs)
+          : 2700,
+      price30DaysTzs:
+        body.price30DaysTzs !== undefined && body.price30DaysTzs !== null
+          ? Number(body.price30DaysTzs)
+          : 8500,
       connectedUsersCount: Number(body.connectedUsersCount || 0),
       createdAt: existingSrv?.createdAt || Date.now(),
       updatedAt: Date.now(),
