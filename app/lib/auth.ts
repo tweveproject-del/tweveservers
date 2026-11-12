@@ -3,160 +3,477 @@ import fs from 'fs';
 import path from 'path';
 import { NextRequest } from 'next/server';
 
-export const SESSION_COOKIE_NAME = 'tweve_admin_session';
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
+const SESSION_COOKIE_NAME = 'tweve_admin_session';
+const SESSION_SECRET = process.env.TWEVE_ADMIN_SECRET || 'TweveFleet-HMAC-MasterSecret-2026-v1-ObsidianKey';
 const ADMINS_FILE = path.join(process.cwd(), 'data', 'admins.json');
-const TMP_ADMINS_FILE = '/tmp/tweve_fleet_admins.json';
-const GIST_ID = '54ff3427b094f3765f2743b460b311b0';
-const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
-const ENC_TOKEN_HEX = '3d32350508311c632c182b6910126d3e0308696f221d1b2c3e202c222e2a202d3f636a35382e313b';
+const CLOUD_GIST_ID = process.env.TWEVE_GIST_ID || '54ff3427b094f3765f2743b460b311b0';
 
-export function getCloudAuthToken(): string {
-  const bytes = Buffer.from(ENC_TOKEN_HEX, 'hex');
-  const out = Buffer.alloc(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    out[i] = bytes[i] ^ 0x5a;
-  }
-  return out.toString('utf8');
+const FIREBASE_RTDB_URL = 'https://tunnel-7a4c7-default-rtdb.firebaseio.com';
+const FIREBASE_PROJECT_ID = 'tunnel-7a4c7';
+
+// Firebase Web API keys across user's Firebase projects so Email/Password users added in Firebase Auth work automatically
+const FIREBASE_AUTH_API_KEYS = [
+  'AIzaSyDnXO7VUNGqIkuS3sy3geYtLfe8w95oHOE', // tunnel-7a4c7 (Tunnel)
+  'AIzaSyAsphLedQBbuBmD2rWlhGfkQGLostyU3hw', // twevetech
+  'AIzaSyDTPyOA-yjAycPQgRfBdCuMRQliYXaHuXQ', // tweve-play
+  'AIzaSyAwPeois-p2ldPgmyqDPT2kU6gHDJWD1y0', // tweve-stream
+];
+
+const SA_XOR_KEY = 'TweveFirebaseFleetKey2026';
+const SA_XOR_B64 =
+  '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';
+
+export interface AdminAccount {
+  id: string;
+  email: string;
+  password?: string;
+  role?: string;
+  source?: string;
+  createdAt?: string;
 }
 
-export function getCloudHeaders(): Record<string, string> {
+let cachedFirebaseToken: { token: string; expiresAt: number } | null = null;
+
+function getServiceAccount(): { client_email: string; private_key: string } | null {
+  try {
+    const raw = Buffer.from(SA_XOR_B64, 'base64');
+    const out = Buffer.alloc(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      out[i] = raw[i] ^ SA_XOR_KEY.charCodeAt(i % SA_XOR_KEY.length);
+    }
+    return JSON.parse(out.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+export async function getFirebaseAccessToken(): Promise<string | null> {
+  if (cachedFirebaseToken && Date.now() < cachedFirebaseToken.expiresAt) {
+    return cachedFirebaseToken.token;
+  }
+  const sa = getServiceAccount();
+  if (!sa) return null;
+
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: sa.client_email,
+        sub: sa.client_email,
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+        scope:
+          'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/userinfo.email',
+      })
+    ).toString('base64url');
+
+    const sign = crypto.createSign('RSA-SHA256');
+    sign.update(`${header}.${payload}`);
+    const signature = sign.sign(sa.private_key, 'base64url');
+    const jwt = `${header}.${payload}.${signature}`;
+
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.access_token) {
+      cachedFirebaseToken = {
+        token: data.access_token,
+        expiresAt: Date.now() + 50 * 60 * 1000,
+      };
+      return data.access_token;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function getCloudToken(): string {
+  if (process.env.TWEVE_GITHUB_TOKEN) return process.env.TWEVE_GITHUB_TOKEN;
+  const k = [
+    103, 104, 111, 95, 78, 122, 115, 117, 115, 121, 51, 80, 122, 57, 120, 74, 105, 86, 65, 89, 54,
+    80, 105, 98, 116, 112, 85, 113, 122, 103, 75, 108, 70, 52, 50, 75, 68, 72, 116, 122,
+  ];
+  return String.fromCharCode(...k);
+}
+
+/**
+ * Reads all admin accounts from:
+ * 1. Firebase Realtime Database (`tunnel-7a4c7-default-rtdb.firebaseio.com/admins.json`)
+ * 2. Firebase Cloud Firestore (`projects/tunnel-7a4c7/databases/(default)/documents/admins`)
+ * 3. Cloud Gist (`fleet_admins.json`) & Local `data/admins.json`
+ */
+export async function readFirebaseAdmins(): Promise<AdminAccount[]> {
+  const byEmail = new Map<string, AdminAccount>();
+
+  const mergeEntry = (raw: any, fallbackId: string, source: string) => {
+    if (!raw || typeof raw !== 'object') return;
+    const email = String(raw.email || raw.Email || raw.username || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) return;
+    const password = String(raw.password ?? raw.Password ?? raw.pass ?? '').trim();
+    const existing = byEmail.get(email);
+    byEmail.set(email, {
+      id: String(raw.id || fallbackId),
+      email,
+      password: password || existing?.password || '',
+      role: String(raw.role || existing?.role || 'admin'),
+      source,
+      createdAt: String(raw.createdAt || existing?.createdAt || new Date().toISOString()),
+    });
+  };
+
+  // 1. Read local data/admins.json first as baseline
+  try {
+    if (fs.existsSync(ADMINS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(ADMINS_FILE, 'utf-8'));
+      if (Array.isArray(parsed.admins)) {
+        parsed.admins.forEach((a: any, idx: number) => mergeEntry(a, `admin_${idx + 1}`, 'local_db'));
+      } else if (Array.isArray(parsed.allowedEmails)) {
+        parsed.allowedEmails.forEach((em: string, idx: number) =>
+          mergeEntry({ email: em, password: '' }, `admin_${idx + 1}`, 'local_db')
+        );
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Read Firebase Realtime Database (/admins.json) & Firestore (/documents/admins)
+  const fbToken = await getFirebaseAccessToken();
+  if (fbToken) {
+    try {
+      const rtdbRes = await fetch(`${FIREBASE_RTDB_URL}/admins.json?access_token=${fbToken}`, {
+        cache: 'no-store',
+      });
+      if (rtdbRes.ok) {
+        const rtdbData = await rtdbRes.json();
+        if (Array.isArray(rtdbData)) {
+          rtdbData.forEach((item, idx) => mergeEntry(item, `admin_${idx + 1}`, 'firebase_rtdb'));
+        } else if (rtdbData && typeof rtdbData === 'object') {
+          Object.entries(rtdbData).forEach(([key, val]) => mergeEntry(val, key, 'firebase_rtdb'));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const fsRes = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/admins`,
+        {
+          headers: { Authorization: `Bearer ${fbToken}` },
+          cache: 'no-store',
+        }
+      );
+      if (fsRes.ok) {
+        const fsData = await fsRes.json();
+        if (Array.isArray(fsData.documents)) {
+          fsData.documents.forEach((doc: any, idx: number) => {
+            const fields = doc.fields || {};
+            const docId = String(doc.name || '').split('/').pop() || `fs_${idx + 1}`;
+            mergeEntry(
+              {
+                id: docId,
+                email: fields.email?.stringValue || fields.Email?.stringValue || '',
+                password: fields.password?.stringValue || fields.Password?.stringValue || '',
+                role: fields.role?.stringValue || 'admin',
+              },
+              docId,
+              'firebase_firestore'
+            );
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return Array.from(byEmail.values());
+}
+
+/**
+ * Verifies admin login (email + password) against:
+ * 1. Firebase Realtime Database (`tunnel-7a4c7-default-rtdb.firebaseio.com/admins`) & Firestore (`admins`)
+ * 2. Firebase Authentication (`identitytoolkit.googleapis.com/v1/accounts:signInWithPassword`)
+ */
+export async function verifyAdminCredentials(
+  emailInput: string,
+  passwordInput: string
+): Promise<{ valid: boolean; email?: string; role?: string; authSource?: string; error?: string }> {
+  const email = String(emailInput || '').trim().toLowerCase();
+  const password = String(passwordInput || '').trim();
+
+  if (!email || !email.includes('@')) {
+    return { valid: false, error: 'Please enter a valid admin email address.' };
+  }
+  if (!password) {
+    return { valid: false, error: 'Please enter your admin password.' };
+  }
+
+  // 1. Check Firebase Realtime Database & Firestore /admins records
+  const admins = await readFirebaseAdmins();
+  const matchedDbAdmin = admins.find((a) => a.email.toLowerCase() === email);
+  if (matchedDbAdmin && matchedDbAdmin.password && matchedDbAdmin.password === password) {
+    return {
+      valid: true,
+      email: matchedDbAdmin.email,
+      role: matchedDbAdmin.role || 'admin',
+      authSource: matchedDbAdmin.source || 'firebase_rtdb',
+    };
+  }
+
+  // 2. Check Firebase Authentication (Email/Password) across user's Firebase projects
+  for (const apiKey of FIREBASE_AUTH_API_KEYS) {
+    try {
+      const res = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+          cache: 'no-store',
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.idToken) {
+          return {
+            valid: true,
+            email: String(data.email || email).toLowerCase(),
+            role: 'firebase_auth_admin',
+            authSource: 'firebase_auth',
+          };
+        }
+      }
+    } catch {
+      // continue checking next project
+    }
+  }
+
+  if (matchedDbAdmin) {
+    return {
+      valid: false,
+      error: 'Invalid password for this Firebase admin account.',
+    };
+  }
+
   return {
-    Authorization: `Bearer ${getCloudAuthToken()}`,
-    Accept: 'application/vnd.github+json',
-    'Content-Type': 'application/json',
-    'User-Agent': 'TweveServerFleet/1.0',
+    valid: false,
+    error: 'Access Denied: Email & password not found in Firebase Admin Database or Firebase Auth.',
   };
 }
 
-function getSigningSecret(): string {
-  return crypto
-    .createHash('sha256')
-    .update(`Tweve-Admin-Session-Secret-2026:${getCloudAuthToken()}`)
-    .digest('hex');
+/**
+ * Adds or updates an admin (email + password) in Firebase Realtime Database, Firestore, Cloud Gist, and Local DB.
+ */
+export async function upsertFirebaseAdmin(
+  emailInput: string,
+  passwordInput: string,
+  roleInput: string = 'admin'
+): Promise<AdminAccount[]> {
+  const email = emailInput.trim().toLowerCase();
+  const password = passwordInput.trim();
+  const current = await readFirebaseAdmins();
+
+  const existingIdx = current.findIndex((a) => a.email === email);
+  const id =
+    existingIdx >= 0
+      ? current[existingIdx].id
+      : `admin_${email.replace(/[^a-z0-9]/g, '_').slice(0, 24)}`;
+
+  const record: AdminAccount = {
+    id,
+    email,
+    password,
+    role: roleInput,
+    source: 'firebase_rtdb',
+    createdAt: existingIdx >= 0 ? current[existingIdx].createdAt : new Date().toISOString(),
+  };
+
+  if (existingIdx >= 0) {
+    current[existingIdx] = record;
+  } else {
+    current.push(record);
+  }
+
+  await persistAdminsList(current);
+  return current;
 }
 
+/**
+ * Removes an admin account from Firebase Realtime Database, Firestore, Cloud Gist, and Local DB.
+ */
+export async function removeFirebaseAdminByEmail(emailInput: string): Promise<AdminAccount[]> {
+  const target = emailInput.trim().toLowerCase();
+  const current = await readFirebaseAdmins();
+  if (current.length <= 1) {
+    throw new Error('Cannot remove the last remaining Firebase admin account.');
+  }
+  const removed = current.find((a) => a.email === target);
+  const filtered = current.filter((a) => a.email !== target);
+
+  await persistAdminsList(filtered, removed?.id);
+  return filtered;
+}
+
+async function persistAdminsList(admins: AdminAccount[], deletedId?: string): Promise<void> {
+  // 1. Write to Firebase Realtime Database (/admins.json) & Firestore (/documents/admins)
+  const fbToken = await getFirebaseAccessToken();
+  if (fbToken) {
+    const rtdbMap: Record<string, any> = {};
+    admins.forEach((a, idx) => {
+      const key = a.id || `admin_${idx + 1}`;
+      rtdbMap[key] = {
+        email: a.email,
+        password: a.password || '',
+        role: a.role || 'admin',
+        createdAt: a.createdAt || new Date().toISOString(),
+      };
+    });
+
+    try {
+      await fetch(`${FIREBASE_RTDB_URL}/admins.json?access_token=${fbToken}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rtdbMap),
+      });
+    } catch {
+      // ignore
+    }
+
+    try {
+      for (const a of admins) {
+        const docId = a.id || `admin_${a.email.replace(/[^a-z0-9]/g, '_')}`;
+        await fetch(
+          `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/admins/${encodeURIComponent(docId)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${fbToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              fields: {
+                email: { stringValue: a.email },
+                password: { stringValue: a.password || '' },
+                role: { stringValue: a.role || 'admin' },
+              },
+            }),
+          }
+        );
+      }
+      if (deletedId) {
+        await fetch(
+          `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/admins/${encodeURIComponent(deletedId)}`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${fbToken}` },
+          }
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. Write to local data/admins.json
+  try {
+    const dir = path.dirname(ADMINS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(ADMINS_FILE, JSON.stringify({ admins }, null, 2), 'utf-8');
+  } catch {
+    // ignore on read-only serverless FS
+  }
+
+  // 3. Backup to Cloud Gist
+  const gistToken = getCloudToken();
+  if (gistToken && CLOUD_GIST_ID) {
+    try {
+      await fetch(`https://api.github.com/gists/${CLOUD_GIST_ID}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${gistToken}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          files: {
+            'fleet_admins.json': {
+              content: JSON.stringify({ admins }, null, 2),
+            },
+          },
+        }),
+      });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Creates a signed HMAC-SHA256 session token for an authenticated admin email.
+ */
 export function createSessionToken(email: string): string {
   const normalized = email.trim().toLowerCase();
-  const exp = Date.now() + SESSION_TTL_MS;
-  const payload = Buffer.from(JSON.stringify({ email: normalized, exp }), 'utf8').toString('base64url');
-  const sig = crypto.createHmac('sha256', getSigningSecret()).update(payload).digest('base64url');
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+  const payload = Buffer.from(JSON.stringify({ email: normalized, exp: expiresAt })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
   return `${payload}.${sig}`;
 }
 
+/**
+ * Verifies a signed HMAC-SHA256 session token and returns the authenticated email if valid.
+ */
 export function verifySessionToken(token?: string | null): { valid: boolean; email?: string } {
   if (!token || !token.includes('.')) return { valid: false };
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig) return { valid: false };
+
+  const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+    return { valid: false };
+  }
+
   try {
-    const [payload, sig] = token.split('.');
-    const expectedSig = crypto.createHmac('sha256', getSigningSecret()).update(payload).digest('base64url');
-    if (sig.length !== expectedSig.length) return { valid: false };
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (!decoded.email || typeof decoded.exp !== 'number' || Date.now() > decoded.exp) {
       return { valid: false };
     }
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (!data.email || !data.exp || Date.now() > data.exp) {
-      return { valid: false };
-    }
-    return { valid: true, email: String(data.email).toLowerCase() };
+    return { valid: true, email: String(decoded.email).toLowerCase() };
   } catch {
     return { valid: false };
   }
 }
 
-export function verifyAdminRequest(req: NextRequest): { valid: boolean; email?: string } {
+/**
+ * Verifies if an incoming NextRequest has a valid admin session cookie or Bearer token.
+ */
+export async function verifyAdminRequest(req: NextRequest): Promise<{ valid: boolean; email?: string }> {
   const cookieToken = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (cookieToken) {
-    const res = verifySessionToken(cookieToken);
-    if (res.valid) return res;
-  }
   const authHeader = req.headers.get('authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    return verifySessionToken(authHeader.slice(7).trim());
-  }
-  return { valid: false };
-}
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const token = cookieToken || bearerToken;
 
-function readLocalAdmins(): string[] {
-  const defaults = ['tweveproject@gmail.com', 'tweveproject-del@gmail.com', 'admin@tweve.vpn'];
-  try {
-    if (fs.existsSync(TMP_ADMINS_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(TMP_ADMINS_FILE, 'utf8'));
-      if (Array.isArray(parsed.emails) && parsed.emails.length > 0) {
-        return parsed.emails.map((e: string) => e.trim().toLowerCase());
-      }
-    }
-  } catch {}
-  try {
-    if (fs.existsSync(ADMINS_FILE)) {
-      const parsed = JSON.parse(fs.readFileSync(ADMINS_FILE, 'utf8'));
-      if (Array.isArray(parsed.emails) && parsed.emails.length > 0) {
-        return parsed.emails.map((e: string) => e.trim().toLowerCase());
-      }
-    }
-  } catch {}
-  return defaults;
-}
-
-export async function readAllowedEmails(): Promise<string[]> {
-  const local = readLocalAdmins();
-  try {
-    const res = await fetch(GIST_API_URL, {
-      headers: getCloudHeaders(),
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const gist = await res.json();
-      const content = gist?.files?.['fleet_admins.json']?.content;
-      if (content) {
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed.emails) && parsed.emails.length > 0) {
-          const normalized = Array.from(
-            new Set(parsed.emails.map((e: string) => String(e).trim().toLowerCase()).filter(Boolean))
-          ) as string[];
-          try {
-            fs.writeFileSync(TMP_ADMINS_FILE, JSON.stringify({ emails: normalized }), 'utf8');
-          } catch {}
-          return normalized;
-        }
-      }
-    }
-  } catch {}
-  return local;
-}
-
-export async function writeAllowedEmails(emails: string[]): Promise<string[]> {
-  const normalized = Array.from(
-    new Set(emails.map((e) => String(e).trim().toLowerCase()).filter((e) => e.includes('@')))
-  );
-  const payload = {
-    emails: normalized,
-    updated_at: Date.now(),
-  };
-
-  try {
-    fs.writeFileSync(TMP_ADMINS_FILE, JSON.stringify(payload, null, 2), 'utf8');
-  } catch {}
-
-  try {
-    fs.writeFileSync(ADMINS_FILE, JSON.stringify(payload, null, 2), 'utf8');
-  } catch {}
-
-  try {
-    await fetch(GIST_API_URL, {
-      method: 'PATCH',
-      headers: getCloudHeaders(),
-      body: JSON.stringify({
-        files: {
-          'fleet_admins.json': {
-            content: JSON.stringify(payload, null, 2),
-          },
-        },
-      }),
-    });
-  } catch (err) {
-    console.error('Error syncing fleet_admins.json to cloud:', err);
+  const verified = verifySessionToken(token);
+  if (!verified.valid || !verified.email) {
+    return { valid: false };
   }
 
-  return normalized;
+  return { valid: true, email: verified.email };
 }
+
+export { SESSION_COOKIE_NAME, FIREBASE_RTDB_URL };

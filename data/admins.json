@@ -1,8 +1,18 @@
 {
-  "emails": [
-    "tweveproject@gmail.com",
-    "tweveproject-del@gmail.com",
-    "admin@tweve.vpn"
-  ],
-  "updated_at": 1794455400000
+  "admins": [
+    {
+      "id": "admin_1",
+      "email": "tweveproject@gmail.com",
+      "password": "Tweve@2026",
+      "role": "superadmin",
+      "createdAt": "2026-11-12T04:10:00Z"
+    },
+    {
+      "id": "admin_2",
+      "email": "admin@twevetech.com",
+      "password": "Tweve@2026",
+      "role": "admin",
+      "createdAt": "2026-11-12T04:10:00Z"
+    }
+  ]
 }

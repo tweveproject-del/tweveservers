@@ -17,7 +17,7 @@ interface UserSession {
 const sessions = new Map<string, UserSession>();
 
 export async function GET(req: NextRequest) {
-  const auth = verifyAdminRequest(req);
+  const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }

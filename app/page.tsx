@@ -10,30 +10,34 @@ import {
   Lock,
   Unlock,
   Zap,
-  Globe,
   CheckCircle2,
   Copy,
   Send,
   Radio,
-  Wifi,
-  Terminal,
   KeyRound,
-  Layers,
-  Sparkles,
   Flame,
   Eye,
   EyeOff,
   Activity,
   Users,
   ClipboardPaste,
+  Edit3,
+  Megaphone,
+  Search,
+  Database,
+  LogOut,
+  X,
 } from 'lucide-react';
 import { VpnServerItem, VpnProtocolType } from './lib/types';
+
+type ProtocolCategory = 'all' | 'dns' | 'v2ray' | 'ssh' | 'udp';
 
 type ProtocolOption = {
   id: VpnProtocolType;
   label: string;
   badge: string;
   desc: string;
+  category: Exclude<ProtocolCategory, 'all'>;
 };
 
 const PROTOCOL_OPTIONS: ProtocolOption[] = [
@@ -42,84 +46,98 @@ const PROTOCOL_OPTIONS: ProtocolOption[] = [
     label: 'SlowDNS (DNSTT)',
     badge: 'UDP 53 / DNS',
     desc: 'DNS tunnel over UDP/DoH with Base62 & segment booster',
+    category: 'dns',
   },
   {
     id: 'v2ray_reality',
     label: 'VLESS Reality',
     badge: 'XTLS Vision',
     desc: 'Zero-fingerprint TLS 1.3 Reality tunnel (Chrome uTLS)',
+    category: 'v2ray',
   },
   {
     id: 'v2ray_ws',
     label: 'V2Ray WS + TLS (CDN)',
     badge: 'Cloudflare / SNI',
     desc: 'VLESS / VMess / Trojan over WebSocket + Bug Host / CDN',
+    category: 'v2ray',
   },
   {
     id: 'dnstt_v2ray',
     label: 'SlowDNS + V2Ray',
     badge: 'DNSTT → Xray',
     desc: 'V2Ray (VLESS/VMess) multiplexed inside a SlowDNS tunnel',
+    category: 'dns',
   },
   {
     id: 'ssh_direct',
     label: 'SSH Direct',
     badge: 'TCP 22',
     desc: 'Direct SSH tunnel with username & password authentication',
+    category: 'ssh',
   },
   {
     id: 'ssh_payload',
     label: 'SSH + HTTP Payload',
     badge: 'HTTP Injector',
     desc: 'Custom HTTP/WebSocket payload injection over SSH',
+    category: 'ssh',
   },
   {
     id: 'ssh_ssl',
     label: 'SSH + SSL (TLS SNI)',
     badge: 'TLS 443',
     desc: 'Direct SSL/TLS handshake with custom SNI bug host',
+    category: 'ssh',
   },
   {
     id: 'ssh_ssl_payload',
     label: 'SSH + SSL + Payload',
     badge: 'SSL + WS Payload',
     desc: 'TLS SNI handshake followed by custom HTTP/WebSocket payload',
+    category: 'ssh',
   },
   {
     id: 'http_proxy_payload',
     label: 'HTTP Proxy + Payload',
     badge: 'Proxy + Payload',
     desc: 'SSH tunnel routed via remote HTTP Squid/Websocket proxy',
+    category: 'ssh',
   },
   {
     id: 'http_proxy_ssl_payload',
     label: 'Proxy + SSL + Payload',
     badge: 'Proxy + TLS + WS',
     desc: 'HTTP Proxy + SSL SNI + custom WebSocket payload injection',
+    category: 'ssh',
   },
   {
     id: 'stealth_link',
     label: 'Stealth Link (SOCKS5)',
     badge: 'DNSTT SOCKS',
     desc: 'Direct DNSTT SOCKS5 transport without SSH overhead',
+    category: 'dns',
   },
   {
     id: 'hysteria2',
     label: 'Hysteria 2 (QUIC)',
     badge: 'UDP Port Hop',
     desc: 'High-speed QUIC UDP protocol with Salamander obfuscation',
+    category: 'udp',
   },
   {
     id: 'wireguard',
     label: 'WireGuard Tunnel',
     badge: 'Kernel / UDP',
     desc: 'Full WireGuard [Interface] & [Peer] configuration profile',
+    category: 'udp',
   },
   {
     id: 'stealth_turbo',
     label: 'Stealth Turbo (Slipstream)',
     badge: 'Slipstream DNS',
     desc: 'High-throughput Slipstream DNS tunnel with certificate pinning',
+    category: 'dns',
   },
 ];
 
@@ -140,6 +158,14 @@ const COUNTRIES = [
   { code: 'SG', name: 'Singapore', flag: '🇸🇬' },
   { code: 'FR', name: 'France', flag: '🇫🇷' },
 ];
+
+interface AdminRecord {
+  id: string;
+  email: string;
+  password?: string;
+  role?: string;
+  source?: string;
+}
 
 interface FleetAnalytics {
   activeUsersCount: number;
@@ -170,16 +196,27 @@ export default function TweveServerFleetAdmin() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [adminEmail, setAdminEmail] = useState('');
   const [loginEmailInput, setLoginEmailInput] = useState('');
+  const [loginPasswordInput, setLoginPasswordInput] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
-  const [allowedEmails, setAllowedEmails] = useState<string[]>([]);
+
+  const [adminsList, setAdminsList] = useState<AdminRecord[]>([]);
   const [showAdminDbPanel, setShowAdminDbPanel] = useState(false);
   const [newAdminEmailInput, setNewAdminEmailInput] = useState('');
+  const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
+  const [showAdminPasswords, setShowAdminPasswords] = useState<Record<string, boolean>>({});
+
+  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'broadcast')
+  const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'broadcast'>('all');
+  const [protoCategory, setProtoCategory] = useState<ProtocolCategory>('all');
+  const [fleetSearch, setFleetSearch] = useState('');
 
   const [servers, setServers] = useState<VpnServerItem[]>([]);
   const [announcement, setAnnouncement] = useState('');
   const [loading, setLoading] = useState(true);
   const [pushing, setPushing] = useState(false);
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showConfigDetails, setShowConfigDetails] = useState<Record<string, boolean>>({});
   const [rawPasteInput, setRawPasteInput] = useState('');
@@ -286,7 +323,7 @@ export default function TweveServerFleetAdmin() {
           if (data.authenticated) {
             setIsAuthenticated(true);
             setAdminEmail(data.email || '');
-            setAllowedEmails(data.allowedEmails || []);
+            setAdminsList(data.admins || []);
             fetchServers();
             fetchAnalytics();
             interval = setInterval(fetchAnalytics, 5000);
@@ -306,9 +343,14 @@ export default function TweveServerFleetAdmin() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const trimmed = loginEmailInput.trim().toLowerCase();
-    if (!trimmed || !trimmed.includes('@')) {
+    const trimmedEmail = loginEmailInput.trim().toLowerCase();
+    const trimmedPassword = loginPasswordInput.trim();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
       setLoginError('Please enter a valid admin email address.');
+      return;
+    }
+    if (!trimmedPassword) {
+      setLoginError('Please enter your Firebase admin password.');
       return;
     }
     setLoginLoading(true);
@@ -316,21 +358,26 @@ export default function TweveServerFleetAdmin() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'login', email: trimmed }),
+        body: JSON.stringify({
+          action: 'login',
+          email: trimmedEmail,
+          password: trimmedPassword,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.authenticated) {
-        setLoginError(data.error || 'Access denied: Email not found in authorized DB.');
+        setLoginError(data.error || 'Access denied: Invalid Firebase email or password.');
       } else {
         setIsAuthenticated(true);
         setAdminEmail(data.email);
-        setAllowedEmails(data.allowedEmails || []);
+        setAdminsList(data.admins || []);
         setLoginEmailInput('');
+        setLoginPasswordInput('');
         fetchServers();
         fetchAnalytics();
       }
     } catch {
-      setLoginError('Network error verifying admin credentials.');
+      setLoginError('Network error verifying Firebase credentials.');
     } finally {
       setLoginLoading(false);
     }
@@ -345,49 +392,105 @@ export default function TweveServerFleetAdmin() {
     setServers([]);
   };
 
-  const handleAddAdminEmail = async (e: React.FormEvent) => {
+  const handleAddFirebaseAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const target = newAdminEmailInput.trim().toLowerCase();
-    if (!target || !target.includes('@')) {
-      notify('error', 'Enter a valid email address to add to DB');
+    const targetEmail = newAdminEmailInput.trim().toLowerCase();
+    const targetPassword = newAdminPasswordInput.trim();
+    if (!targetEmail || !targetEmail.includes('@')) {
+      notify('error', 'Enter a valid email address');
+      return;
+    }
+    if (!targetPassword || targetPassword.length < 4) {
+      notify('error', 'Enter a password (at least 4 characters)');
       return;
     }
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'add_email', email: target }),
+        body: JSON.stringify({
+          action: 'add_admin',
+          email: targetEmail,
+          password: targetPassword,
+          role: 'admin',
+        }),
       });
       const data = await res.json();
-      if (res.ok && data.allowedEmails) {
-        setAllowedEmails(data.allowedEmails);
+      if (res.ok && data.admins) {
+        setAdminsList(data.admins);
         setNewAdminEmailInput('');
-        notify('success', `Added ${target} to authorized DB`);
+        setNewAdminPasswordInput('');
+        notify('success', `Saved ${targetEmail} to Firebase Admin DB`);
       } else {
-        notify('error', data.error || 'Failed to add email');
+        notify('error', data.error || 'Failed to save admin');
       }
     } catch {
-      notify('error', 'Failed to update admin DB');
+      notify('error', 'Failed to update Firebase Admin DB');
     }
   };
 
-  const handleRemoveAdminEmail = async (target: string) => {
+  const handleRemoveFirebaseAdmin = async (target: string) => {
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove_email', email: target }),
+        body: JSON.stringify({ action: 'remove_admin', email: target }),
       });
       const data = await res.json();
-      if (res.ok && data.allowedEmails) {
-        setAllowedEmails(data.allowedEmails);
-        notify('success', `Removed ${target} from authorized DB`);
+      if (res.ok && data.admins) {
+        setAdminsList(data.admins);
+        notify('success', `Removed ${target} from Firebase Admin DB`);
       } else {
-        notify('error', data.error || 'Cannot remove email');
+        notify('error', data.error || 'Cannot remove admin');
       }
     } catch {
-      notify('error', 'Failed to update admin DB');
+      notify('error', 'Failed to update Firebase Admin DB');
     }
+  };
+
+  const handleLoadServerIntoForm = (s: VpnServerItem) => {
+    setEditingServerId(s.id);
+    setFormProtocol(s.protocol);
+    setName(s.name || '');
+    setCountry(s.country || 'TZ');
+    setTier((s.tier as any) || 'FREE');
+    setHost(s.host || '');
+    setPort(String(s.portDirect || s.portHTTP || s.portSSL || 22));
+    setUsername(s.username || '');
+    setPassword(s.password || '');
+    setSni(s.sni || '');
+    setPayload(s.payload || '');
+    setProxyHost(s.proxyHost || '');
+    setProxyPort(String(s.proxyPort || 8080));
+    setIsLocked(s.isLocked !== undefined ? s.isLocked : true);
+    setDnsttNameserver(s.dnsttNameserver || '');
+    setDnsttPubkey(s.dnsttPubkey || '');
+    setDnsResolver(s.dnsResolver || '8.8.8.8:53');
+    setDnsttBooster(s.dnsttBooster !== undefined ? s.dnsttBooster : true);
+    setDnsttTurbo(s.dnsttTurbo !== undefined ? s.dnsttTurbo : true);
+    setDnsttBoosterSegments(String(s.dnsttBoosterSegments || 4));
+    setV2rayProtocol(s.v2rayProtocol || 'vless');
+    setV2rayUuid(s.v2rayUuid || '');
+    setV2rayPort(String(s.v2rayPort || 443));
+    setV2rayPublicKey(s.v2rayPublicKey || '');
+    setV2rayShortId(s.v2rayShortId || '');
+    setV2raySni(s.v2raySni || '');
+    setV2rayWsHost(s.v2rayWsHost || '');
+    setV2rayWsPath(s.v2rayWsPath || '/');
+    setHysteriaPort(String(s.hysteriaPort || 443));
+    setHysteriaPorts(s.hysteriaPorts || '20000-50000');
+    setHysteriaAuth(s.hysteriaAuth || '');
+    setHysteriaObfs(s.hysteriaObfs || '');
+    setHysteriaSni(s.hysteriaSni || '');
+    setSlipstreamDomain(s.slipstreamDomain || '');
+    setSlipstreamCert(s.slipstreamCert || '');
+    setSlipstreamDirect(Boolean(s.slipstreamDirect));
+    setWireguardConfig(s.wireguardConfig || '');
+    if (mobileViewTab === 'fleet') {
+      setMobileViewTab('deploy');
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    notify('success', `Loaded "${s.name}" into editor`);
   };
 
   // Quick-Import Parser for VLESS / VMess / Trojan / Hysteria2 / SlowDNS / WireGuard URIs
@@ -501,6 +604,7 @@ export default function TweveServerFleetAdmin() {
     setPushing(true);
     try {
       const payloadBody: Partial<VpnServerItem> = {
+        ...(editingServerId ? { id: editingServerId } : {}),
         name: name.trim(),
         country,
         tier,
@@ -518,14 +622,12 @@ export default function TweveServerFleetAdmin() {
         proxyPort: Number(proxyPort || 8080),
         isLocked,
         isActive: true,
-        // SlowDNS / DNSTT
         dnsttNameserver: dnsttNameserver.trim(),
         dnsttPubkey: dnsttPubkey.trim(),
         dnsResolver: dnsResolver.trim() || '8.8.8.8:53',
         dnsttBooster,
         dnsttTurbo,
         dnsttBoosterSegments: Number(dnsttBoosterSegments || 4),
-        // V2Ray
         v2rayAddress: effectiveHost,
         v2rayPort: Number(v2rayPort || 443),
         v2rayProtocol,
@@ -542,17 +644,14 @@ export default function TweveServerFleetAdmin() {
         v2rayNetwork: formProtocol === 'v2ray_ws' ? 'ws' : 'tcp',
         v2rayWsHost: v2rayWsHost.trim() || v2raySni.trim(),
         v2rayWsPath: v2rayWsPath.trim() || '/',
-        // Hysteria2
         hysteriaPort: Number(hysteriaPort || 443),
         hysteriaPorts: hysteriaPorts.trim(),
         hysteriaAuth: hysteriaAuth.trim(),
         hysteriaObfs: hysteriaObfs.trim(),
         hysteriaSni: hysteriaSni.trim() || sni.trim(),
-        // Stealth Turbo (Slipstream)
         slipstreamDomain: slipstreamDomain.trim() || dnsttNameserver.trim(),
         slipstreamCert: slipstreamCert.trim() || dnsttPubkey.trim(),
         slipstreamDirect,
-        // WireGuard
         wireguardConfig,
       };
 
@@ -564,8 +663,12 @@ export default function TweveServerFleetAdmin() {
       const data = await res.json();
       if (data.success) {
         setServers(data.manifest.servers);
-        notify('success', `Deployed "${name.trim()}" (${formProtocol.toUpperCase()}) to App & Cloud Fleet!`);
+        notify(
+          'success',
+          `${editingServerId ? 'Updated' : 'Deployed'} "${name.trim()}" (${formProtocol.toUpperCase()}) to App & Firebase!`
+        );
         setName('');
+        setEditingServerId(null);
         fetchAnalytics();
       } else {
         notify('error', data.error || 'Failed to deploy server');
@@ -583,6 +686,7 @@ export default function TweveServerFleetAdmin() {
       const data = await res.json();
       if (data.success) {
         setServers(data.manifest.servers);
+        if (editingServerId === id) setEditingServerId(null);
         notify('success', `Removed "${srvName}" from Fleet`);
         fetchAnalytics();
       }
@@ -635,7 +739,7 @@ export default function TweveServerFleetAdmin() {
       });
       const data = await res.json();
       if (data.success) {
-        notify('success', 'Synced Fleet Announcement & Encrypted Manifest to App & Cloud!');
+        notify('success', 'Synced Fleet Announcement & Encrypted Manifest to App & Firebase!');
       }
     } catch {
       notify('error', 'Failed to save announcement');
@@ -672,6 +776,21 @@ export default function TweveServerFleetAdmin() {
   const needsSniField = ['ssh_ssl', 'ssh_ssl_payload', 'http_proxy_ssl_payload'].includes(formProtocol);
   const needsProxyFields = ['http_proxy', 'http_proxy_payload', 'http_proxy_ssl_payload'].includes(formProtocol);
 
+  const filteredProtocols = PROTOCOL_OPTIONS.filter(
+    (p) => protoCategory === 'all' || p.category === protoCategory
+  );
+
+  const filteredServers = servers.filter((s) => {
+    if (!fleetSearch.trim()) return true;
+    const q = fleetSearch.toLowerCase();
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.host.toLowerCase().includes(q) ||
+      s.protocol.toLowerCase().includes(q) ||
+      s.country.toLowerCase().includes(q)
+    );
+  });
+
   if (authChecking) {
     return (
       <div
@@ -682,12 +801,12 @@ export default function TweveServerFleetAdmin() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: 'system-ui, sans-serif',
+          padding: '1rem',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.95rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.9rem' }}>
           <Shield style={{ width: '1.35rem', height: '1.35rem', color: '#34d399' }} />
-          <span>Verifying Tweve Fleet Security Session...</span>
+          <span>Verifying Firebase Admin Session...</span>
         </div>
       </div>
     );
@@ -700,86 +819,128 @@ export default function TweveServerFleetAdmin() {
           minHeight: '100vh',
           backgroundColor: '#020617',
           backgroundImage:
-            'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.14), transparent 55%), radial-gradient(circle at 85% 90%, rgba(56, 189, 248, 0.1), transparent 45%)',
+            'radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 55%), radial-gradient(circle at 85% 90%, rgba(56, 189, 248, 0.12), transparent 45%)',
           color: '#f8fafc',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '1.5rem',
+          padding: '1rem',
         }}
       >
         <div
+          className="fleet-card"
           style={{
             width: '100%',
             maxWidth: '430px',
-            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-            border: '1px solid rgba(56, 189, 248, 0.22)',
-            borderRadius: '1.25rem',
-            padding: '2.25rem 2rem',
-            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.65)',
+            padding: '1.85rem 1.5rem',
           }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.75rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '1.5rem' }}>
             <div
               style={{
-                width: '3.5rem',
-                height: '3.5rem',
+                width: '3.4rem',
+                height: '3.4rem',
                 borderRadius: '1rem',
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25))',
                 border: '1px solid rgba(16, 185, 129, 0.5)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '1rem',
+                marginBottom: '0.9rem',
                 boxShadow: '0 0 28px rgba(16, 185, 129, 0.28)',
               }}
             >
-              <Lock style={{ width: '1.65rem', height: '1.65rem', color: '#34d399' }} />
+              <Lock style={{ width: '1.55rem', height: '1.55rem', color: '#34d399' }} />
             </div>
-            <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+            <h1 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
               TWEVE SERVER FLEET
             </h1>
-            <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.35rem' }}>
-              Protected Admin Console • Authorized DB Email Required
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
+              Firebase Admin Authentication • Email & Password Required
             </p>
           </div>
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label
                 style={{
                   display: 'block',
-                  fontSize: '0.75rem',
+                  fontSize: '0.72rem',
                   fontWeight: 700,
                   color: '#cbd5e1',
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em',
-                  marginBottom: '0.45rem',
+                  marginBottom: '0.4rem',
                 }}
               >
-                Authorized Admin Email
+                Admin Email Address
               </label>
               <input
                 type="email"
                 required
                 autoFocus
+                autoComplete="username"
                 value={loginEmailInput}
                 onChange={(e) => setLoginEmailInput(e.target.value)}
-                placeholder="Enter email registered in DB..."
-                className="input-fleet"
-                style={{ width: '100%' }}
+                placeholder="tweveproject@gmail.com"
               />
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#cbd5e1',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  marginBottom: '0.4rem',
+                }}
+              >
+                Admin Password
+              </label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showLoginPassword ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  value={loginPasswordInput}
+                  onChange={(e) => setLoginPasswordInput(e.target.value)}
+                  placeholder="Enter Firebase admin password..."
+                  style={{ paddingRight: '2.75rem' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowLoginPassword((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: '0.75rem',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                  title={showLoginPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showLoginPassword ? (
+                    <EyeOff style={{ width: '1rem', height: '1rem' }} />
+                  ) : (
+                    <Eye style={{ width: '1rem', height: '1rem' }} />
+                  )}
+                </button>
+              </div>
             </div>
 
             {loginError && (
               <div
                 style={{
-                  padding: '0.75rem 0.95rem',
+                  padding: '0.75rem 0.9rem',
                   borderRadius: '0.75rem',
                   backgroundColor: 'rgba(244, 63, 94, 0.14)',
                   border: '1px solid rgba(244, 63, 94, 0.4)',
                   color: '#fda4af',
-                  fontSize: '0.8rem',
+                  fontSize: '0.78rem',
                   fontWeight: 600,
                 }}
               >
@@ -791,28 +952,29 @@ export default function TweveServerFleetAdmin() {
               type="submit"
               disabled={loginLoading}
               className="btn-fleet-primary"
-              style={{ width: '100%', justifyContent: 'center', padding: '0.8rem 1rem' }}
+              style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
             >
               <Shield style={{ width: '1rem', height: '1rem' }} />
-              <span>{loginLoading ? 'Verifying DB Allowlist...' : 'Unlock Server Fleet Console'}</span>
+              <span>{loginLoading ? 'Verifying with Firebase...' : 'Sign In to Fleet Console'}</span>
             </button>
           </form>
 
           <div
             style={{
-              marginTop: '1.5rem',
-              paddingTop: '1.1rem',
+              marginTop: '1.35rem',
+              paddingTop: '1rem',
               borderTop: '1px solid rgba(148, 163, 184, 0.12)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.45rem',
-              fontSize: '0.72rem',
+              fontSize: '0.7rem',
               color: '#64748b',
+              textAlign: 'center',
             }}
           >
             <KeyRound style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
-            <span>AES-256-GCM Encrypted APK Feed • HMAC-SHA256 Session</span>
+            <span>Firebase RTDB + Firestore + Auth (`tunnel-7a4c7`)</span>
           </div>
         </div>
       </div>
@@ -820,1007 +982,1425 @@ export default function TweveServerFleetAdmin() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#020617', color: '#f8fafc', paddingBottom: '4rem' }}>
-      {/* Top Navbar */}
+    <div style={{ minHeight: '100vh', backgroundColor: '#020617', color: '#f8fafc' }}>
+      {/* Sticky Top Header */}
       <header
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 50,
           backdropFilter: 'blur(16px)',
-          backgroundColor: 'rgba(2, 6, 23, 0.88)',
+          backgroundColor: 'rgba(2, 6, 23, 0.9)',
           borderBottom: '1px solid rgba(56, 189, 248, 0.16)',
         }}
       >
-        <div
-          style={{
-            maxWidth: '1320px',
-            margin: '0 auto',
-            padding: '1rem 1.5rem',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+        <div className="fleet-header-inner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
             <div
               style={{
-                width: '2.75rem',
-                height: '2.75rem',
-                borderRadius: '0.85rem',
+                width: '2.5rem',
+                height: '2.5rem',
+                borderRadius: '0.75rem',
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.22))',
                 border: '1px solid rgba(16, 185, 129, 0.45)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 0 24px rgba(16, 185, 129, 0.25)',
+                flexShrink: 0,
+                boxShadow: '0 0 20px rgba(16, 185, 129, 0.22)',
               }}
             >
-              <Flame style={{ width: '1.5rem', height: '1.5rem', color: '#34d399' }} />
+              <Flame style={{ width: '1.35rem', height: '1.35rem', color: '#34d399' }} />
             </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <h1 style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <h1 style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
                   TWEVE SERVER FLEET
                 </h1>
                 <span
                   style={{
-                    fontSize: '0.65rem',
+                    fontSize: '0.6rem',
                     fontWeight: 700,
-                    padding: '0.15rem 0.55rem',
+                    padding: '0.12rem 0.5rem',
                     borderRadius: '9999px',
                     background: 'rgba(16, 185, 129, 0.15)',
                     color: '#34d399',
                     border: '1px solid rgba(16, 185, 129, 0.35)',
                   }}
                 >
-                  ALL 14 PROTOCOLS + CLOUD SYNC
+                  FIREBASE + APK SYNC
                 </span>
               </div>
-              <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                Signed in as <strong style={{ color: '#38bdf8' }}>{adminEmail}</strong>
+              <p style={{ fontSize: '0.7rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Admin: <strong style={{ color: '#38bdf8' }}>{adminEmail}</strong>
               </p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
             <button
               type="button"
               onClick={() => setShowAdminDbPanel((v) => !v)}
               className="btn-fleet-secondary"
+              style={{
+                borderColor: showAdminDbPanel ? '#a78bfa' : undefined,
+                background: showAdminDbPanel ? 'rgba(139, 92, 246, 0.18)' : undefined,
+              }}
             >
-              <Users style={{ width: '0.9rem', height: '0.9rem', color: '#a78bfa' }} />
-              <span>DB Emails ({allowedEmails.length})</span>
+              <Database style={{ width: '0.85rem', height: '0.85rem', color: '#a78bfa' }} />
+              <span>Firebase Admins ({adminsList.length})</span>
             </button>
             <button type="button" onClick={handleSaveAnnouncement} className="btn-fleet-secondary">
-              <RefreshCw style={{ width: '0.9rem', height: '0.9rem', color: '#34d399' }} />
-              <span>Sync Fleet to Cloud & App</span>
+              <RefreshCw style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
+              <span>Sync Cloud</span>
             </button>
             <button type="button" onClick={copyApkEndpoint} className="btn-fleet-secondary">
-              <Copy style={{ width: '0.9rem', height: '0.9rem', color: '#38bdf8' }} />
-              <span>Copy APK Feed URL</span>
+              <Copy style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
+              <span>APK URL</span>
             </button>
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
-              <Lock style={{ width: '0.9rem', height: '0.9rem', color: '#fb7185' }} />
-              <span>Sign Out</span>
+              <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
+              <span>Exit</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main
-        style={{
-          maxWidth: '1320px',
-          margin: '0 auto',
-          padding: '1.75rem 1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.5rem',
-        }}
-      >
-        {showAdminDbPanel && (
+      <main className="fleet-shell" style={{ display: 'flex', flexDirection: 'column', gap: '1.15rem' }}>
+        {/* Notification Banner */}
+        {notification && (
           <div
             style={{
-              padding: '1.25rem 1.5rem',
-              borderRadius: '1rem',
-              backgroundColor: 'rgba(15, 23, 42, 0.92)',
-              border: '1px solid rgba(167, 139, 250, 0.35)',
+              padding: '0.8rem 1rem',
+              borderRadius: '0.85rem',
               display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              background:
+                notification.type === 'success' ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.16)',
+              border: `1px solid ${
+                notification.type === 'success' ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
+              }`,
+              color: notification.type === 'success' ? '#6ee7b7' : '#fda4af',
+              fontSize: '0.82rem',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              {notification.type === 'success' ? (
+                <CheckCircle2 style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} />
+              ) : (
+                <Flame style={{ width: '1.05rem', height: '1.05rem', color: '#fb7185' }} />
+              )}
+              <span style={{ fontWeight: 600 }}>{notification.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNotification(null)}
+              style={{ color: '#94a3b8', cursor: 'pointer' }}
+            >
+              <X style={{ width: '0.95rem', height: '0.95rem' }} />
+            </button>
+          </div>
+        )}
+
+        {/* Firebase Admin Accounts Drawer */}
+        {showAdminDbPanel && (
+          <section
+            className="fleet-card fleet-section-pad"
+            style={{ border: '1px solid rgba(167, 139, 250, 0.45)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#ffffff' }}>
-                  Authorized Admin Emails in Database (`data/admins.json` & Cloud DB)
-                </h3>
-                <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                  Only emails listed below can sign in to view or modify the Tweve Server Fleet.
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Database style={{ width: '1.1rem', height: '1.1rem', color: '#a78bfa' }} />
+                  <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                    Firebase Admin Accounts (`tunnel-7a4c7` / `admins`)
+                  </h3>
+                </div>
+                <p style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                  Add or update admin email & password here or manually in Firebase Console → Realtime Database (`/admins`) / Firestore (`admins`) / Firebase Auth.
                 </p>
               </div>
-              <form onSubmit={handleAddAdminEmail} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+
+              <button
+                type="button"
+                onClick={() => setShowAdminDbPanel(false)}
+                className="btn-fleet-secondary"
+                style={{ padding: '0.35rem 0.65rem' }}
+              >
+                <X style={{ width: '0.85rem', height: '0.85rem' }} />
+                <span>Close</span>
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleAddFirebaseAdmin}
+              className="fleet-form-grid-3"
+              style={{ marginTop: '1rem', alignItems: 'end' }}
+            >
+              <div>
+                <label style={{ fontSize: '0.7rem', color: '#cbd5e1', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                  Admin Email *
+                </label>
                 <input
                   type="email"
                   required
                   value={newAdminEmailInput}
                   onChange={(e) => setNewAdminEmailInput(e.target.value)}
-                  placeholder="new-admin@email.com"
-                  className="input-fleet"
-                  style={{ width: '240px' }}
+                  placeholder="admin@email.com"
                 />
-                <button type="submit" className="btn-fleet-primary">
-                  <PlusCircle style={{ width: '0.9rem', height: '0.9rem' }} />
-                  <span>Add Email to DB</span>
-                </button>
-              </form>
-            </div>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              {allowedEmails.map((em) => (
-                <div
-                  key={em}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    padding: '0.35rem 0.75rem',
-                    borderRadius: '9999px',
-                    backgroundColor: 'rgba(30, 41, 59, 0.9)',
-                    border: '1px solid rgba(148, 163, 184, 0.25)',
-                    fontSize: '0.78rem',
-                    color: '#e2e8f0',
-                  }}
-                >
-                  <span>{em}</span>
-                  {allowedEmails.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAdminEmail(em)}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#fb7185',
-                        cursor: 'pointer',
-                        padding: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                      }}
-                      title="Remove email from DB"
-                    >
-                      <Trash2 style={{ width: '0.8rem', height: '0.8rem' }} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {notification && (
-          <div
-            style={{
-              padding: '0.9rem 1.25rem',
-              borderRadius: '0.85rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              background:
-                notification.type === 'success' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.15)',
-              border: `1px solid ${notification.type === 'success' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)'
-                }`,
-              color: notification.type === 'success' ? '#6ee7b7' : '#fda4af',
-            }}
-          >
-            {notification.type === 'success' ? (
-              <CheckCircle2 style={{ width: '1.1rem', height: '1.1rem', color: '#34d399' }} />
-            ) : (
-              <Flame style={{ width: '1.1rem', height: '1.1rem', color: '#fb7185' }} />
-            )}
-            <span style={{ fontWeight: 600 }}>{notification.message}</span>
-          </div>
-        )}
-
-        {/* Real-time Fleet Telemetry Bar */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-          <div className="kpi-stat-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ width: '0.5rem', height: '0.5rem', borderRadius: '9999px', backgroundColor: analytics.activeUsersCount > 0 ? '#10b981' : '#64748b', boxShadow: analytics.activeUsersCount > 0 ? '0 0 10px #10b981' : 'none', display: 'inline-block' }}></span>
-                Live Connected Users
-              </span>
-              <Users style={{ width: '1.1rem', height: '1.1rem', color: '#34d399', opacity: 0.8 }} />
-            </div>
-            <div style={{ marginTop: '0.65rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-              <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
-                {analytics.activeUsersCount}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>Active Devices</span>
-            </div>
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem' }}>Real-time heartbeat sessions</p>
-          </div>
-
-          <div className="kpi-stat-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Server style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
-                Active Fleet Nodes
-              </span>
-              <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontWeight: 700 }}>
-                CLOUD + LAN
-              </span>
-            </div>
-            <div style={{ marginTop: '0.65rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-              <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#38bdf8', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
-                {servers.filter(s => s.isActive).length}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>of {servers.length} configured</span>
-            </div>
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem' }}>Synced to LAN & Firebase Cloud</p>
-          </div>
-
-          <div className="kpi-stat-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Zap style={{ width: '0.85rem', height: '0.85rem', color: '#c084fc' }} />
-                Protocols Supported
-              </span>
-              <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(192, 132, 252, 0.15)', color: '#c084fc', fontWeight: 700 }}>
-                14 MODES
-              </span>
-            </div>
-            <div style={{ marginTop: '0.65rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-              <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#c084fc', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
-                {PROTOCOL_OPTIONS.length}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>Ready in APK</span>
-            </div>
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem' }}>SlowDNS, V2Ray, SSH, Proxy, Hy2, WG, Slipstream</p>
-          </div>
-
-          <div className="kpi-stat-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Activity style={{ width: '0.85rem', height: '0.85rem', color: '#fbbf24' }} />
-                Transferred Bandwidth
-              </span>
-              <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(251, 191, 36, 0.15)', color: '#fbbf24', fontWeight: 700 }}>
-                REAL TIME
-              </span>
-            </div>
-            <div style={{ marginTop: '0.65rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-              <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#fcd34d', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
-                {analytics.bandwidth.totalDownMB} MB
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 500 }}>Download</span>
-            </div>
-            <p style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.2rem' }}>
-              ↑ {analytics.bandwidth.totalUpMB} MB | ↓ {analytics.bandwidth.totalDownMB} MB
-            </p>
-          </div>
-        </div>
-
-        {/* Quick Link Import / Paste Bar */}
-        <section className="fleet-card" style={{ padding: '1rem 1.25rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-            <ClipboardPaste style={{ width: '1.2rem', height: '1.2rem', color: '#22d3ee' }} />
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ffffff' }}>
-              Quick Import URI / Config:
-            </span>
-            <input
-              type="text"
-              value={rawPasteInput}
-              onChange={e => setRawPasteInput(e.target.value)}
-              placeholder="Paste vless://, vmess://, trojan://, hy2:// or WireGuard [Interface] config to auto-fill..."
-              style={{ flex: 1, minWidth: '260px', fontFamily: 'monospace', fontSize: '0.775rem' }}
-            />
-            <button
-              type="button"
-              onClick={() => handleParseRawUri(rawPasteInput)}
-              className="btn-fleet-secondary"
-              style={{ padding: '0.6rem 1rem' }}
-            >
-              <span>Auto-Fill Form</span>
-            </button>
-          </div>
-        </section>
-
-        {/* Server Push Suite */}
-        <section className="fleet-card" style={{ padding: '1.5rem 1.75rem' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1.25rem', borderBottom: '1px solid rgba(56, 189, 248, 0.18)', gap: '1rem' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                <div style={{ padding: '0.45rem', borderRadius: '0.75rem', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399' }}>
-                  <PlusCircle style={{ width: '1.2rem', height: '1.2rem' }} />
-                </div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
-                  Deploy Server to Tweve Tunnel VPN
-                </h2>
               </div>
-              <p style={{ fontSize: '0.775rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-                Select any of the 14 supported tunnel protocols below. Pushed servers sync to LAN & Cloud immediately.
-              </p>
-            </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', color: '#cbd5e1', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                  Admin Password *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAdminPasswordInput}
+                  onChange={(e) => setNewAdminPasswordInput(e.target.value)}
+                  placeholder="Enter password..."
+                  style={{ fontFamily: 'monospace' }}
+                />
+              </div>
+              <button type="submit" className="btn-fleet-primary" style={{ height: '42px' }}>
+                <PlusCircle style={{ width: '0.95rem', height: '0.95rem' }} />
+                <span>Save Admin to Firebase</span>
+              </button>
+            </form>
 
-            <button
-              type="button"
-              onClick={() => setIsLocked(!isLocked)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.55rem 1rem',
-                borderRadius: '0.75rem',
-                fontSize: '0.775rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                background: isLocked ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                border: isLocked ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(245, 158, 11, 0.4)',
-                color: isLocked ? '#34d399' : '#fbbf24',
-              }}
-            >
-              {isLocked ? <Lock style={{ width: '0.9rem', height: '0.9rem' }} /> : <Unlock style={{ width: '0.9rem', height: '0.9rem' }} />}
-              <span>{isLocked ? 'Anti-Tamper Locked' : 'Unlocked (Visible)'}</span>
-            </button>
-          </div>
-
-          {/* Protocol Selector Grid */}
-          <div style={{ marginTop: '1.25rem' }}>
-            <label style={{ fontSize: '0.725rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.65rem' }}>
-              1. Select Tunnel Protocol ({PROTOCOL_OPTIONS.length} Supported Modes)
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.65rem' }}>
-              {PROTOCOL_OPTIONS.map(p => {
-                const active = formProtocol === p.id;
+            <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0.65rem' }}>
+              {adminsList.map((adm) => {
+                const pwVisible = showAdminPasswords[adm.email] || false;
                 return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setFormProtocol(p.id)}
+                  <div
+                    key={adm.email}
                     style={{
-                      textAlign: 'left',
-                      padding: '0.75rem 0.9rem',
-                      borderRadius: '0.75rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      background: active ? 'rgba(16, 185, 129, 0.16)' : 'rgba(15, 23, 42, 0.75)',
-                      border: active ? '1.5px solid #10b981' : '1px solid rgba(56, 189, 248, 0.16)',
-                      boxShadow: active ? '0 0 18px rgba(16, 185, 129, 0.2)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '0.8rem',
+                      backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                      border: '1px solid rgba(148, 163, 184, 0.22)',
+                      fontSize: '0.76rem',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
-                      <span style={{ fontSize: '0.825rem', fontWeight: 800, color: active ? '#34d399' : '#ffffff' }}>
-                        {p.label}
-                      </span>
-                      <span style={{ fontSize: '0.625rem', padding: '0.1rem 0.4rem', borderRadius: '0.35rem', background: 'rgba(2, 6, 23, 0.8)', color: '#38bdf8', fontWeight: 700, fontFamily: 'monospace' }}>
-                        {p.badge}
-                      </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {adm.email}
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '0.15rem' }}>
+                        Password: <span style={{ color: '#34d399' }}>{pwVisible ? adm.password || '(Firebase Auth)' : '••••••••'}</span>
+                      </div>
                     </div>
-                    <p style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.3rem', lineHeight: 1.35 }}>
-                      {p.desc}
-                    </p>
-                  </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowAdminPasswords((prev) => ({ ...prev, [adm.email]: !prev[adm.email] }))
+                        }
+                        style={{ color: '#38bdf8', cursor: 'pointer', padding: '0.25rem' }}
+                        title="Show/Hide Password"
+                      >
+                        {pwVisible ? <EyeOff style={{ width: '0.85rem', height: '0.85rem' }} /> : <Eye style={{ width: '0.85rem', height: '0.85rem' }} />}
+                      </button>
+                      {adminsList.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFirebaseAdmin(adm.email)}
+                          style={{ color: '#fb7185', cursor: 'pointer', padding: '0.25rem' }}
+                          title="Delete Admin from Firebase"
+                        >
+                          <Trash2 style={{ width: '0.85rem', height: '0.85rem' }} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>
-          </div>
+          </section>
+        )}
 
-          {/* Core Identity Fields */}
-          <div style={{ marginTop: '1.35rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem' }}>
-            <div>
-              <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                Server Remark / Name *
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Vodacom Tanzania"
-              />
+        {/* Real-time Fleet Telemetry Bar (2x2 on Phone/Tablet, 4-col on PC) */}
+        <div className="fleet-kpi-grid">
+          <div className="kpi-stat-box">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: analytics.activeUsersCount > 0 ? '#10b981' : '#64748b', display: 'inline-block' }}></span>
+                Connected
+              </span>
+              <Users style={{ width: '0.95rem', height: '0.95rem', color: '#34d399' }} />
             </div>
-
-            <div>
-              <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                Country Flag
-              </label>
-              <select value={country} onChange={e => setCountry(e.target.value)}>
-                {COUNTRIES.map(c => (
-                  <option key={c.code} value={c.code}>
-                    {c.flag} {c.name} ({c.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                Server Badge Tier
-              </label>
-              <select value={tier} onChange={e => setTier(e.target.value as any)}>
-                <option value="FREE">FREE (Standard)</option>
-                <option value="VIP">VIP (High Speed)</option>
-                <option value="PREMIUM">PREMIUM (Ultra Low Latency)</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                Server Host / IP Address *
-              </label>
-              <input
-                type="text"
-                value={host}
-                onChange={e => setHost(e.target.value)}
-                placeholder="e.g. tr-voda.vpn4pros.com"
-                style={{ fontFamily: 'monospace' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                Primary Port
-              </label>
-              <input
-                type="number"
-                value={port}
-                onChange={e => setPort(e.target.value)}
-                placeholder="22 / 80 / 443"
-                style={{ fontFamily: 'monospace' }}
-              />
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#ffffff', fontFamily: 'monospace' }}>
+                {analytics.activeUsersCount}
+              </span>
+              <span style={{ fontSize: '0.68rem', color: '#34d399', fontWeight: 600 }}>Live</span>
             </div>
           </div>
 
-          {/* Protocol-Specific Fields */}
-          <div style={{ marginTop: '1.25rem', padding: '1.15rem', borderRadius: '0.85rem', backgroundColor: 'rgba(2, 6, 23, 0.65)', border: '1px solid rgba(56, 189, 248, 0.16)' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.85rem' }}>
-              2. Protocol Parameters — {PROTOCOL_OPTIONS.find(p => p.id === formProtocol)?.label}
+          <div className="kpi-stat-box">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Active Nodes
+              </span>
+              <Server style={{ width: '0.95rem', height: '0.95rem', color: '#38bdf8' }} />
             </div>
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#38bdf8', fontFamily: 'monospace' }}>
+                {servers.filter((s) => s.isActive).length}
+              </span>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>/ {servers.length}</span>
+            </div>
+          </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-              {needsDnsttFields && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      DNSTT Nameserver (NS Domain) *
-                    </label>
-                    <input
-                      type="text"
-                      value={dnsttNameserver}
-                      onChange={e => setDnsttNameserver(e.target.value)}
-                      placeholder="e.g. ns.isp.tz.vpn4pros.com"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      DNSTT Public Key (64-char Hex) *
-                    </label>
-                    <input
-                      type="text"
-                      value={dnsttPubkey}
-                      onChange={e => setDnsttPubkey(e.target.value)}
-                      placeholder="64-character hex public key"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      DNS Resolver (UDP / DoH)
-                    </label>
-                    <input
-                      type="text"
-                      value={dnsResolver}
-                      onChange={e => setDnsResolver(e.target.value)}
-                      placeholder="8.8.8.8:53 or 1.1.1.1:53"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Booster Segments (1-8)
-                    </label>
-                    <input
-                      type="number"
-                      value={dnsttBoosterSegments}
-                      onChange={e => setDnsttBoosterSegments(e.target.value)}
-                      placeholder="4"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
+          <div className="kpi-stat-box">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Protocols
+              </span>
+              <Zap style={{ width: '0.95rem', height: '0.95rem', color: '#c084fc' }} />
+            </div>
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c084fc', fontFamily: 'monospace' }}>
+                {PROTOCOL_OPTIONS.length}
+              </span>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Modes</span>
+            </div>
+          </div>
 
-              {needsV2rayFields && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      V2Ray Sub-Protocol
-                    </label>
-                    <select value={v2rayProtocol} onChange={e => setV2rayProtocol(e.target.value)}>
-                      <option value="vless">VLESS</option>
-                      <option value="vmess">VMess</option>
-                      <option value="trojan">Trojan</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      UUID / Trojan Password *
-                    </label>
-                    <input
-                      type="text"
-                      value={v2rayUuid}
-                      onChange={e => setV2rayUuid(e.target.value)}
-                      placeholder="e.g. 93a61219-c703-4f9e-a0e2-6dcfb4c48924"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      V2Ray Port
-                    </label>
-                    <input
-                      type="number"
-                      value={v2rayPort}
-                      onChange={e => setV2rayPort(e.target.value)}
-                      placeholder="443"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      TLS / Reality SNI Bug Host
-                    </label>
-                    <input
-                      type="text"
-                      value={v2raySni}
-                      onChange={e => setV2raySni(e.target.value)}
-                      placeholder="e.g. myvodacom.vodacom.co.tz"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
+          <div className="kpi-stat-box">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Traffic
+              </span>
+              <Activity style={{ width: '0.95rem', height: '0.95rem', color: '#fbbf24' }} />
+            </div>
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
+                {analytics.bandwidth.totalDownMB}
+              </span>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>MB</span>
+            </div>
+          </div>
+        </div>
 
-              {formProtocol === 'v2ray_reality' && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Reality Public Key (pbk) *
-                    </label>
-                    <input
-                      type="text"
-                      value={v2rayPublicKey}
-                      onChange={e => setV2rayPublicKey(e.target.value)}
-                      placeholder="Reality x25519 public key"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Reality Short ID (sid)
-                    </label>
-                    <input
-                      type="text"
-                      value={v2rayShortId}
-                      onChange={e => setV2rayShortId(e.target.value)}
-                      placeholder="e.g. 6ba85179e30d4fc2"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
+        {/* Sticky Mobile & Tablet View Switcher */}
+        <nav className="fleet-mobile-tabs">
+          {[
+            { id: 'all', label: 'Split All' },
+            { id: 'deploy', label: editingServerId ? 'Edit Node' : '+ Deploy' },
+            { id: 'fleet', label: `Servers (${servers.length})` },
+            { id: 'broadcast', label: 'Broadcast' },
+          ].map((tab) => {
+            const active = mobileViewTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setMobileViewTab(tab.id as any)}
+                style={{
+                  padding: '0.5rem 0.35rem',
+                  borderRadius: '0.65rem',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  background: active
+                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                    : 'transparent',
+                  color: active ? '#ffffff' : '#94a3b8',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
 
-              {formProtocol === 'v2ray_ws' && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      WebSocket Host / CDN Bug Host
-                    </label>
-                    <input
-                      type="text"
-                      value={v2rayWsHost}
-                      onChange={e => setV2rayWsHost(e.target.value)}
-                      placeholder="e.g. myvodacom.vodacom.co.tz"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      WebSocket Path
-                    </label>
-                    <input
-                      type="text"
-                      value={v2rayWsPath}
-                      onChange={e => setV2rayWsPath(e.target.value)}
-                      placeholder="e.g. /voda-ws"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
+        {/* Main Responsive Workspace: 2-Column Split on PC, Adaptive on Tablet/Phone */}
+        <div className="fleet-workspace-grid">
+          {/* LEFT COLUMN: Quick Import + Server Deployment Suite */}
+          <div
+            style={{
+              display: mobileViewTab === 'all' || mobileViewTab === 'deploy' ? 'flex' : 'none',
+              flexDirection: 'column',
+              gap: '1.15rem',
+              minWidth: 0,
+            }}
+          >
+            {/* Quick Link Import / Paste Bar */}
+            <section className="fleet-card" style={{ padding: '0.9rem 1.1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <ClipboardPaste style={{ width: '1.05rem', height: '1.05rem', color: '#22d3ee' }} />
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff' }}>
+                    Quick URI Auto-Fill:
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flex: 1, gap: '0.5rem', minWidth: '220px' }}>
+                  <input
+                    type="text"
+                    value={rawPasteInput}
+                    onChange={(e) => setRawPasteInput(e.target.value)}
+                    placeholder="Paste vless://, vmess://, trojan://, hy2:// or WireGuard config..."
+                    style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.76rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleParseRawUri(rawPasteInput)}
+                    className="btn-fleet-secondary"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <span>Parse</span>
+                  </button>
+                </div>
+              </div>
+            </section>
 
-              {needsSshCredentials && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      SSH Username (leave blank to use user&apos;s own SSH account)
-                    </label>
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={e => setUsername(e.target.value)}
-                      placeholder="Optional pre-bundled SSH username"
-                      style={{ fontFamily: 'monospace' }}
-                    />
+            {/* Server Push / Edit Suite */}
+            <section className="fleet-card fleet-section-pad">
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: '1rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                  gap: '0.75rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <div
+                    style={{
+                      padding: '0.45rem',
+                      borderRadius: '0.75rem',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                      color: '#34d399',
+                    }}
+                  >
+                    {editingServerId ? (
+                      <Edit3 style={{ width: '1.15rem', height: '1.15rem' }} />
+                    ) : (
+                      <PlusCircle style={{ width: '1.15rem', height: '1.15rem' }} />
+                    )}
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      SSH Password (leave blank to use user&apos;s own SSH password)
-                    </label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Optional pre-bundled SSH password"
-                    />
+                    <h2 style={{ fontSize: '1.08rem', fontWeight: 800, color: '#ffffff' }}>
+                      {editingServerId ? 'Edit Existing Fleet Server' : 'Deploy Server to Tweve Tunnel'}
+                    </h2>
+                    <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      Pushed configurations encrypt with AES-256-GCM and sync to APK & Firebase.
+                    </p>
                   </div>
-                </>
-              )}
+                </div>
 
-              {needsSniField && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {editingServerId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingServerId(null);
+                        setName('');
+                      }}
+                      className="btn-fleet-secondary"
+                    >
+                      <X style={{ width: '0.85rem', height: '0.85rem' }} />
+                      <span>Cancel Edit</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsLocked(!isLocked)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.45rem 0.85rem',
+                      borderRadius: '0.75rem',
+                      fontSize: '0.73rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      background: isLocked ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                      border: isLocked
+                        ? '1px solid rgba(16, 185, 129, 0.4)'
+                        : '1px solid rgba(245, 158, 11, 0.4)',
+                      color: isLocked ? '#34d399' : '#fbbf24',
+                    }}
+                  >
+                    {isLocked ? (
+                      <Lock style={{ width: '0.85rem', height: '0.85rem' }} />
+                    ) : (
+                      <Unlock style={{ width: '0.85rem', height: '0.85rem' }} />
+                    )}
+                    <span>{isLocked ? 'Locked' : 'Unlocked'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Protocol Category Filter + Grid */}
+              <div style={{ marginTop: '1rem' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    marginBottom: '0.65rem',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      color: '#94a3b8',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                    }}
+                  >
+                    1. Select Protocol ({PROTOCOL_OPTIONS.find((p) => p.id === formProtocol)?.label})
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'all', label: 'All (14)' },
+                      { id: 'dns', label: 'SlowDNS' },
+                      { id: 'v2ray', label: 'V2Ray' },
+                      { id: 'ssh', label: 'SSH / Proxy' },
+                      { id: 'udp', label: 'Hy2 / WG' },
+                    ].map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setProtoCategory(cat.id as ProtocolCategory)}
+                        style={{
+                          padding: '0.22rem 0.6rem',
+                          borderRadius: '9999px',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          background:
+                            protoCategory === cat.id
+                              ? 'rgba(56, 189, 248, 0.2)'
+                              : 'rgba(15, 23, 42, 0.8)',
+                          border:
+                            protoCategory === cat.id
+                              ? '1px solid #38bdf8'
+                              : '1px solid rgba(148, 163, 184, 0.2)',
+                          color: protoCategory === cat.id ? '#38bdf8' : '#94a3b8',
+                        }}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="fleet-proto-grid">
+                  {filteredProtocols.map((p) => {
+                    const active = formProtocol === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setFormProtocol(p.id)}
+                        style={{
+                          textAlign: 'left',
+                          padding: '0.65rem 0.75rem',
+                          borderRadius: '0.75rem',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          background: active ? 'rgba(16, 185, 129, 0.16)' : 'rgba(15, 23, 42, 0.75)',
+                          border: active ? '1.5px solid #10b981' : '1px solid rgba(56, 189, 248, 0.16)',
+                          boxShadow: active ? '0 0 16px rgba(16, 185, 129, 0.2)' : 'none',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.3rem' }}>
+                          <span style={{ fontSize: '0.76rem', fontWeight: 800, color: active ? '#34d399' : '#ffffff' }}>
+                            {p.label}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span
+                            style={{
+                              fontSize: '0.6rem',
+                              padding: '0.08rem 0.35rem',
+                              borderRadius: '0.3rem',
+                              background: 'rgba(2, 6, 23, 0.85)',
+                              color: '#38bdf8',
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                            }}
+                          >
+                            {p.badge}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Core Identity Fields */}
+              <div className="fleet-form-grid" style={{ marginTop: '1.15rem' }}>
                 <div>
-                  <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                    SSL / TLS SNI Host *
+                  <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                    Server Remark / Name *
                   </label>
                   <input
                     type="text"
-                    value={sni}
-                    onChange={e => setSni(e.target.value)}
-                    placeholder="e.g. zero.facebook.com"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Vodacom Tanzania VIP"
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                    Server Host / IP Address *
+                  </label>
+                  <input
+                    type="text"
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    placeholder="e.g. tz1.twevetunnel.com"
                     style={{ fontFamily: 'monospace' }}
                   />
                 </div>
-              )}
 
-              {needsProxyFields && (
-                <>
+                <div>
+                  <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                    Country Flag
+                  </label>
+                  <select value={country} onChange={(e) => setCountry(e.target.value)}>
+                    {COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
                   <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      HTTP Proxy Host
+                    <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                      Badge Tier
                     </label>
-                    <input
-                      type="text"
-                      value={proxyHost}
-                      onChange={e => setProxyHost(e.target.value)}
-                      placeholder="Defaults to Server Host if blank"
-                      style={{ fontFamily: 'monospace' }}
-                    />
+                    <select value={tier} onChange={(e) => setTier(e.target.value as any)}>
+                      <option value="FREE">FREE</option>
+                      <option value="VIP">VIP</option>
+                      <option value="PREMIUM">PREMIUM</option>
+                    </select>
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      HTTP Proxy Port
+                    <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                      Primary Port
                     </label>
                     <input
                       type="number"
-                      value={proxyPort}
-                      onChange={e => setProxyPort(e.target.value)}
-                      placeholder="8080 or 80"
+                      value={port}
+                      onChange={(e) => setPort(e.target.value)}
+                      placeholder="22 / 443"
                       style={{ fontFamily: 'monospace' }}
                     />
                   </div>
-                </>
-              )}
-
-              {formProtocol === 'hysteria2' && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Hysteria2 Auth Password *
-                    </label>
-                    <input
-                      type="text"
-                      value={hysteriaAuth}
-                      onChange={e => setHysteriaAuth(e.target.value)}
-                      placeholder="Hysteria 2 auth password"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Hysteria2 Port
-                    </label>
-                    <input
-                      type="number"
-                      value={hysteriaPort}
-                      onChange={e => setHysteriaPort(e.target.value)}
-                      placeholder="443"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Port Hopping Range (mport)
-                    </label>
-                    <input
-                      type="text"
-                      value={hysteriaPorts}
-                      onChange={e => setHysteriaPorts(e.target.value)}
-                      placeholder="20000-50000"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      SNI / Bug Host
-                    </label>
-                    <input
-                      type="text"
-                      value={hysteriaSni}
-                      onChange={e => setHysteriaSni(e.target.value)}
-                      placeholder="e.g. www.bing.com"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Salamander Obfs Password (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={hysteriaObfs}
-                      onChange={e => setHysteriaObfs(e.target.value)}
-                      placeholder="Optional obfs password"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
-
-              {formProtocol === 'stealth_turbo' && (
-                <>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Slipstream Domain *
-                    </label>
-                    <input
-                      type="text"
-                      value={slipstreamDomain}
-                      onChange={e => setSlipstreamDomain(e.target.value)}
-                      placeholder="e.g. s.domain.com"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                      Slipstream Certificate (PEM / Base64)
-                    </label>
-                    <input
-                      type="text"
-                      value={slipstreamCert}
-                      onChange={e => setSlipstreamCert(e.target.value)}
-                      placeholder="Optional certificate pin"
-                      style={{ fontFamily: 'monospace' }}
-                    />
-                  </div>
-                </>
-              )}
-
-              {needsPayloadField && (
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                    HTTP Injector Payload *
-                  </label>
-                  <textarea
-                    value={payload}
-                    onChange={e => setPayload(e.target.value)}
-                    rows={2}
-                    placeholder="GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf]"
-                    style={{ fontFamily: 'monospace', color: '#fbbf24', minHeight: '64px' }}
-                  />
                 </div>
-              )}
+              </div>
 
-              {formProtocol === 'wireguard' && (
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <label style={{ fontSize: '0.725rem', color: '#94a3b8', display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                    WireGuard Configuration ([Interface] & [Peer]) *
-                  </label>
-                  <textarea
-                    value={wireguardConfig}
-                    onChange={e => setWireguardConfig(e.target.value)}
-                    rows={6}
-                    placeholder={`[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = 1.2.3.4:51820\nAllowedIPs = 0.0.0.0/0`}
-                    style={{ fontFamily: 'monospace', color: '#34d399', minHeight: '130px' }}
-                  />
+              {/* Protocol-Specific Fields */}
+              <div
+                style={{
+                  marginTop: '1.1rem',
+                  padding: '1rem',
+                  borderRadius: '0.85rem',
+                  backgroundColor: 'rgba(2, 6, 23, 0.65)',
+                  border: '1px solid rgba(56, 189, 248, 0.16)',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    color: '#38bdf8',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  2. {PROTOCOL_OPTIONS.find((p) => p.id === formProtocol)?.label} Parameters
                 </div>
-              )}
-            </div>
+
+                <div className="fleet-form-grid">
+                  {needsDnsttFields && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          DNSTT Nameserver (NS Domain) *
+                        </label>
+                        <input
+                          type="text"
+                          value={dnsttNameserver}
+                          onChange={(e) => setDnsttNameserver(e.target.value)}
+                          placeholder="ns.isp.tz.domain.com"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          DNSTT Public Key (64-char Hex) *
+                        </label>
+                        <input
+                          type="text"
+                          value={dnsttPubkey}
+                          onChange={(e) => setDnsttPubkey(e.target.value)}
+                          placeholder="64-character hex public key"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          DNS Resolver (UDP / DoH)
+                        </label>
+                        <input
+                          type="text"
+                          value={dnsResolver}
+                          onChange={(e) => setDnsResolver(e.target.value)}
+                          placeholder="8.8.8.8:53 or 1.1.1.1:53"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Booster Segments (1-8)
+                        </label>
+                        <input
+                          type="number"
+                          value={dnsttBoosterSegments}
+                          onChange={(e) => setDnsttBoosterSegments(e.target.value)}
+                          placeholder="4"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {needsV2rayFields && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          V2Ray Sub-Protocol
+                        </label>
+                        <select value={v2rayProtocol} onChange={(e) => setV2rayProtocol(e.target.value)}>
+                          <option value="vless">VLESS</option>
+                          <option value="vmess">VMess</option>
+                          <option value="trojan">Trojan</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          UUID / Trojan Password *
+                        </label>
+                        <input
+                          type="text"
+                          value={v2rayUuid}
+                          onChange={(e) => setV2rayUuid(e.target.value)}
+                          placeholder="e.g. 93a61219-c703-4f9e-a0e2-..."
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          V2Ray Port
+                        </label>
+                        <input
+                          type="number"
+                          value={v2rayPort}
+                          onChange={(e) => setV2rayPort(e.target.value)}
+                          placeholder="443"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          TLS / Reality SNI Bug Host
+                        </label>
+                        <input
+                          type="text"
+                          value={v2raySni}
+                          onChange={(e) => setV2raySni(e.target.value)}
+                          placeholder="e.g. www.microsoft.com"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {formProtocol === 'v2ray_reality' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Reality Public Key (pbk) *
+                        </label>
+                        <input
+                          type="text"
+                          value={v2rayPublicKey}
+                          onChange={(e) => setV2rayPublicKey(e.target.value)}
+                          placeholder="Reality x25519 public key"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Reality Short ID (sid)
+                        </label>
+                        <input
+                          type="text"
+                          value={v2rayShortId}
+                          onChange={(e) => setV2rayShortId(e.target.value)}
+                          placeholder="e.g. 6ba85179e30d4fc2"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {formProtocol === 'v2ray_ws' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          WebSocket Host / CDN Bug Host
+                        </label>
+                        <input
+                          type="text"
+                          value={v2rayWsHost}
+                          onChange={(e) => setV2rayWsHost(e.target.value)}
+                          placeholder="e.g. myvodacom.vodacom.co.tz"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          WebSocket Path
+                        </label>
+                        <input
+                          type="text"
+                          value={v2rayWsPath}
+                          onChange={(e) => setV2rayWsPath(e.target.value)}
+                          placeholder="e.g. /vless-ws"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {needsSshCredentials && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          SSH Username
+                        </label>
+                        <input
+                          type="text"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          placeholder="SSH username"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          SSH Password
+                        </label>
+                        <input
+                          type="text"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="SSH password"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {needsSniField && (
+                    <div>
+                      <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                        SSL / TLS SNI Host *
+                      </label>
+                      <input
+                        type="text"
+                        value={sni}
+                        onChange={(e) => setSni(e.target.value)}
+                        placeholder="e.g. zero.facebook.com"
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  )}
+
+                  {needsProxyFields && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          HTTP Proxy Host
+                        </label>
+                        <input
+                          type="text"
+                          value={proxyHost}
+                          onChange={(e) => setProxyHost(e.target.value)}
+                          placeholder="Defaults to Server Host"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          HTTP Proxy Port
+                        </label>
+                        <input
+                          type="number"
+                          value={proxyPort}
+                          onChange={(e) => setProxyPort(e.target.value)}
+                          placeholder="8080 or 80"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {formProtocol === 'hysteria2' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Hysteria2 Auth Password *
+                        </label>
+                        <input
+                          type="text"
+                          value={hysteriaAuth}
+                          onChange={(e) => setHysteriaAuth(e.target.value)}
+                          placeholder="Hysteria 2 auth password"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Hysteria2 Port
+                        </label>
+                        <input
+                          type="number"
+                          value={hysteriaPort}
+                          onChange={(e) => setHysteriaPort(e.target.value)}
+                          placeholder="443"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Port Hopping Range (mport)
+                        </label>
+                        <input
+                          type="text"
+                          value={hysteriaPorts}
+                          onChange={(e) => setHysteriaPorts(e.target.value)}
+                          placeholder="20000-50000"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          SNI / Bug Host
+                        </label>
+                        <input
+                          type="text"
+                          value={hysteriaSni}
+                          onChange={(e) => setHysteriaSni(e.target.value)}
+                          placeholder="e.g. www.bing.com"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {formProtocol === 'stealth_turbo' && (
+                    <>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Slipstream Domain *
+                        </label>
+                        <input
+                          type="text"
+                          value={slipstreamDomain}
+                          onChange={(e) => setSlipstreamDomain(e.target.value)}
+                          placeholder="e.g. s.domain.com"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                          Slipstream Certificate
+                        </label>
+                        <input
+                          type="text"
+                          value={slipstreamCert}
+                          onChange={(e) => setSlipstreamCert(e.target.value)}
+                          placeholder="Optional certificate pin"
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {needsPayloadField && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                        HTTP Injector Payload *
+                      </label>
+                      <textarea
+                        value={payload}
+                        onChange={(e) => setPayload(e.target.value)}
+                        rows={2}
+                        placeholder="GET / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf][crlf]"
+                        style={{ fontFamily: 'monospace', color: '#fbbf24', minHeight: '64px' }}
+                      />
+                    </div>
+                  )}
+
+                  {formProtocol === 'wireguard' && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
+                        WireGuard Configuration ([Interface] & [Peer]) *
+                      </label>
+                      <textarea
+                        value={wireguardConfig}
+                        onChange={(e) => setWireguardConfig(e.target.value)}
+                        rows={5}
+                        placeholder={`[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = 1.2.3.4:51820\nAllowedIPs = 0.0.0.0/0`}
+                        style={{ fontFamily: 'monospace', color: '#34d399', minHeight: '120px' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Button Bar */}
+              <div
+                style={{
+                  marginTop: '1.15rem',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.85rem',
+                  paddingTop: '1rem',
+                  borderTop: '1px solid rgba(56, 189, 248, 0.16)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.72rem', color: '#94a3b8' }}>
+                  <Shield style={{ width: '0.95rem', height: '0.95rem', color: '#34d399', flexShrink: 0 }} />
+                  <span>
+                    {isLocked
+                      ? 'Anti-Tamper Locked: Credentials hidden inside VPN client.'
+                      : 'Unlocked: Parameters visible for testing.'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handlePushServer}
+                  disabled={pushing}
+                  className="btn-fleet-primary"
+                >
+                  {pushing ? (
+                    <RefreshCw style={{ width: '1rem', height: '1rem' }} className="animate-spin" />
+                  ) : (
+                    <Send style={{ width: '1rem', height: '1rem' }} />
+                  )}
+                  <span>
+                    {editingServerId ? 'Save & Sync Updated Server' : 'Push Server Live to App & Cloud'}
+                  </span>
+                </button>
+              </div>
+            </section>
           </div>
 
-          {/* Action Button Bar */}
-          <div style={{ marginTop: '1.25rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(56, 189, 248, 0.16)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
-              <Shield style={{ width: '1rem', height: '1rem', color: '#34d399' }} />
-              <span>
-                {isLocked
-                  ? 'Client Anti-Tamper Protection enabled: Users can connect to this server, but cannot view or extract credentials.'
-                  : 'Unlocked: Parameters will be visible on test clients.'}
-              </span>
-            </div>
+          {/* RIGHT COLUMN: Active Fleet Servers + Broadcast Announcement */}
+          <div
+            style={{
+              display:
+                mobileViewTab === 'all' || mobileViewTab === 'fleet' || mobileViewTab === 'broadcast'
+                  ? 'flex'
+                  : 'none',
+              flexDirection: 'column',
+              gap: '1.15rem',
+              minWidth: 0,
+            }}
+          >
+            {/* Active Fleet Servers Card */}
+            {(mobileViewTab === 'all' || mobileViewTab === 'fleet') && (
+              <section className="fleet-card fleet-section-pad">
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.75rem',
+                    paddingBottom: '0.9rem',
+                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div
+                      style={{
+                        padding: '0.4rem',
+                        borderRadius: '0.7rem',
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        border: '1px solid rgba(56, 189, 248, 0.3)',
+                        color: '#38bdf8',
+                      }}
+                    >
+                      <Radio style={{ width: '1.1rem', height: '1.1rem' }} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff' }}>
+                        Active Fleet ({servers.length})
+                      </h3>
+                      <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                        Live servers synced to APK & Firebase
+                      </p>
+                    </div>
+                  </div>
 
-            <button
-              type="button"
-              onClick={handlePushServer}
-              disabled={pushing}
-              className="btn-fleet-primary"
-            >
-              {pushing ? <RefreshCw style={{ width: '1rem', height: '1rem' }} className="animate-spin" /> : <Send style={{ width: '1rem', height: '1rem' }} />}
-              <span>Push Server Live to App & Cloud</span>
-            </button>
-          </div>
-        </section>
-
-        {/* Live Server Fleet Table */}
-        <section className="fleet-card" style={{ padding: '1.5rem 1.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '1rem', borderBottom: '1px solid rgba(56, 189, 248, 0.18)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <div style={{ padding: '0.45rem', borderRadius: '0.75rem', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', color: '#38bdf8' }}>
-                <Radio style={{ width: '1.2rem', height: '1.2rem' }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff' }}>Active Fleet Servers ({servers.length})</h3>
-                <p style={{ fontSize: '0.725rem', color: '#94a3b8' }}>Real-time persistent servers synced across LAN, Firebase Cloud & APK</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={fetchServers}
-              disabled={loading}
-              className="btn-fleet-secondary"
-            >
-              <RefreshCw style={{ width: '0.85rem', height: '0.85rem' }} className={loading ? 'animate-spin' : ''} />
-              <span>Refresh Database</span>
-            </button>
-          </div>
-
-          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {servers.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b', fontSize: '0.825rem' }}>
-                <Server style={{ width: '2rem', height: '2rem', margin: '0 auto 0.65rem', opacity: 0.4 }} />
-                <div style={{ fontWeight: 700, color: '#94a3b8' }}>No servers deployed in the database yet</div>
-                <p style={{ marginTop: '0.25rem', fontSize: '0.75rem' }}>
-                  Use the configuration suite above or paste a config URI to deploy your first server.
-                </p>
-              </div>
-            ) : (
-              servers.map(s => {
-                const detailsVisible = showConfigDetails[s.id] || false;
-                const countryObj = COUNTRIES.find(c => c.code === s.country);
-                return (
-                  <div
-                    key={s.id}
-                    className="server-fleet-row"
-                    style={{ opacity: s.isActive ? 1 : 0.6 }}
+                  <button
+                    type="button"
+                    onClick={fetchServers}
+                    disabled={loading}
+                    className="btn-fleet-secondary"
+                    style={{ padding: '0.4rem 0.75rem' }}
                   >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.85rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-                        <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.75rem', backgroundColor: '#030712', border: '1px solid rgba(56, 189, 248, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem' }}>
-                          {countryObj ? countryObj.flag : '🌐'}
-                        </div>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#ffffff' }}>{s.name}</span>
-                            <span
+                    <RefreshCw
+                      style={{ width: '0.8rem', height: '0.8rem' }}
+                      className={loading ? 'animate-spin' : ''}
+                    />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {/* Search Filter */}
+                {servers.length > 0 && (
+                  <div style={{ marginTop: '0.85rem', position: 'relative' }}>
+                    <Search
+                      style={{
+                        width: '0.9rem',
+                        height: '0.9rem',
+                        color: '#64748b',
+                        position: 'absolute',
+                        left: '0.85rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={fleetSearch}
+                      onChange={(e) => setFleetSearch(e.target.value)}
+                      placeholder="Filter servers by name, host, or protocol..."
+                      style={{ paddingLeft: '2.35rem', fontSize: '0.76rem' }}
+                    />
+                  </div>
+                )}
+
+                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  {filteredServers.length === 0 ? (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        padding: '2.25rem 1rem',
+                        color: '#64748b',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <Server style={{ width: '1.85rem', height: '1.85rem', margin: '0 auto 0.5rem', opacity: 0.4 }} />
+                      <div style={{ fontWeight: 700, color: '#94a3b8' }}>No matching servers in fleet</div>
+                    </div>
+                  ) : (
+                    filteredServers.map((s) => {
+                      const detailsVisible = showConfigDetails[s.id] || false;
+                      const countryObj = COUNTRIES.find((c) => c.code === s.country);
+                      return (
+                        <div
+                          key={s.id}
+                          className="server-fleet-row"
+                          style={{
+                            opacity: s.isActive ? 1 : 0.6,
+                            borderColor:
+                              editingServerId === s.id ? '#10b981' : undefined,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '0.75rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', minWidth: 0 }}>
+                              <div
+                                style={{
+                                  width: '2.35rem',
+                                  height: '2.35rem',
+                                  borderRadius: '0.65rem',
+                                  backgroundColor: '#030712',
+                                  border: '1px solid rgba(56, 189, 248, 0.2)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '1.15rem',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {countryObj ? countryObj.flag : '🌐'}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#ffffff' }}>
+                                    {s.name}
+                                  </span>
+                                  <span
+                                    style={{
+                                      padding: '0.1rem 0.45rem',
+                                      borderRadius: '0.35rem',
+                                      fontSize: '0.62rem',
+                                      fontWeight: 800,
+                                      textTransform: 'uppercase',
+                                      background: 'rgba(56, 189, 248, 0.15)',
+                                      color: '#38bdf8',
+                                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                                    }}
+                                  >
+                                    {s.protocol.replace(/_/g, ' ')}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: '0.62rem',
+                                      fontWeight: 800,
+                                      color: '#34d399',
+                                    }}
+                                  >
+                                    {s.tier}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    color: '#94a3b8',
+                                    marginTop: '0.18rem',
+                                    fontFamily: 'monospace',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {s.host}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleLoadServerIntoForm(s)}
+                                className="btn-fleet-secondary"
+                                style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
+                                title="Edit server in form"
+                              >
+                                <Edit3 style={{ width: '0.75rem', height: '0.75rem', color: '#38bdf8' }} />
+                                <span>Edit</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowConfigDetails((prev) => ({
+                                    ...prev,
+                                    [s.id]: !prev[s.id],
+                                  }))
+                                }
+                                className="btn-fleet-secondary"
+                                style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
+                              >
+                                {detailsVisible ? (
+                                  <EyeOff style={{ width: '0.75rem', height: '0.75rem' }} />
+                                ) : (
+                                  <Eye style={{ width: '0.75rem', height: '0.75rem' }} />
+                                )}
+                                <span>{detailsVisible ? 'Hide' : 'View'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStatus(s)}
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  borderRadius: '0.6rem',
+                                  fontSize: '0.7rem',
+                                  fontWeight: 700,
+                                  border: s.isActive
+                                    ? '1px solid rgba(16, 185, 129, 0.4)'
+                                    : '1px solid rgba(148, 163, 184, 0.3)',
+                                  background: s.isActive
+                                    ? 'rgba(16, 185, 129, 0.15)'
+                                    : 'rgba(148, 163, 184, 0.1)',
+                                  color: s.isActive ? '#34d399' : '#94a3b8',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {s.isActive ? 'Online' : 'Paused'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteServer(s.id, s.name)}
+                                style={{
+                                  padding: '0.4rem',
+                                  borderRadius: '0.6rem',
+                                  background: 'rgba(244, 63, 94, 0.15)',
+                                  border: '1px solid rgba(244, 63, 94, 0.3)',
+                                  color: '#fb7185',
+                                  cursor: 'pointer',
+                                }}
+                                title="Delete server"
+                              >
+                                <Trash2 style={{ width: '0.82rem', height: '0.82rem' }} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {detailsVisible && (
+                            <div
                               style={{
-                                padding: '0.15rem 0.5rem',
-                                borderRadius: '0.4rem',
-                                fontSize: '0.675rem',
-                                fontWeight: 800,
-                                textTransform: 'uppercase',
-                                background: 'rgba(56, 189, 248, 0.15)',
-                                color: '#38bdf8',
-                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                                marginTop: '0.75rem',
+                                fontSize: '0.72rem',
+                                fontFamily: 'monospace',
+                                backgroundColor: '#030712',
+                                padding: '0.75rem',
+                                borderRadius: '0.65rem',
+                                border: '1px solid rgba(56, 189, 248, 0.16)',
+                                color: '#cbd5e1',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '0.3rem',
+                                wordBreak: 'break-all',
                               }}
                             >
-                              {s.protocol.replace(/_/g, ' ')}
-                            </span>
-                            {s.isLocked && (
-                              <span
-                                onClick={() => handleToggleLock(s)}
-                                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.675rem', backgroundColor: '#030712', color: '#34d399', padding: '0.15rem 0.45rem', borderRadius: '0.4rem', border: '1px solid rgba(16, 185, 129, 0.3)', fontWeight: 600 }}
-                              >
-                                <Lock style={{ width: '0.65rem', height: '0.65rem' }} />
-                                Locked (Anti-Tamper)
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.65rem', fontFamily: 'monospace' }}>
-                            <span>Host: {s.host}</span>
-                            <span>•</span>
-                            <span>Users: <strong style={{ color: '#ffffff' }}>{s.connectedUsersCount || 0}</strong></span>
-                            <span>•</span>
-                            <span style={{ color: '#34d399', fontWeight: 700 }}>{s.tier}</span>
-                          </div>
+                              <div>
+                                Host: <span style={{ color: '#38bdf8' }}>{s.host}</span> (Port:{' '}
+                                {s.portDirect || s.v2rayPort || 443})
+                              </div>
+                              {s.username && (
+                                <div>
+                                  SSH User: <span style={{ color: '#34d399' }}>{s.username}</span>
+                                </div>
+                              )}
+                              {s.dnsttNameserver && (
+                                <div>
+                                  NS: <span style={{ color: '#34d399' }}>{s.dnsttNameserver}</span>
+                                </div>
+                              )}
+                              {s.dnsttPubkey && (
+                                <div>
+                                  Pubkey: <span style={{ color: '#c084fc' }}>{s.dnsttPubkey}</span>
+                                </div>
+                              )}
+                              {s.v2rayUuid && (
+                                <div>
+                                  UUID: <span style={{ color: '#c084fc' }}>{s.v2rayUuid}</span>
+                                </div>
+                              )}
+                              {s.v2raySni && (
+                                <div>
+                                  SNI: <span style={{ color: '#34d399' }}>{s.v2raySni}</span>
+                                </div>
+                              )}
+                              {s.payload && (
+                                <div>
+                                  Payload: <span style={{ color: '#fbbf24' }}>{s.payload}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            )}
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setShowConfigDetails(prev => ({
-                              ...prev,
-                              [s.id]: !prev[s.id],
-                            }))
-                          }
-                          className="btn-fleet-secondary"
-                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }}
-                        >
-                          {detailsVisible ? <EyeOff style={{ width: '0.8rem', height: '0.8rem' }} /> : <Eye style={{ width: '0.8rem', height: '0.8rem' }} />}
-                          <span>{detailsVisible ? 'Hide' : 'Inspect'}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleToggleStatus(s)}
-                          style={{
-                            padding: '0.4rem 0.85rem',
-                            borderRadius: '0.65rem',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            border: s.isActive ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(148, 163, 184, 0.3)',
-                            background: s.isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.1)',
-                            color: s.isActive ? '#34d399' : '#94a3b8',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {s.isActive ? 'Active' : 'Disabled'}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteServer(s.id, s.name)}
-                          style={{
-                            padding: '0.45rem',
-                            borderRadius: '0.65rem',
-                            background: 'rgba(244, 63, 94, 0.15)',
-                            border: '1px solid rgba(244, 63, 94, 0.3)',
-                            color: '#fb7185',
-                            cursor: 'pointer',
-                          }}
-                          title="Delete server"
-                        >
-                          <Trash2 style={{ width: '0.9rem', height: '0.9rem' }} />
-                        </button>
-                      </div>
+            {/* Global App Broadcast / Rich HTML Announcement Card */}
+            {(mobileViewTab === 'all' || mobileViewTab === 'broadcast') && (
+              <section className="fleet-card fleet-section-pad">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.6rem',
+                    paddingBottom: '0.85rem',
+                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <div
+                      style={{
+                        padding: '0.4rem',
+                        borderRadius: '0.7rem',
+                        background: 'rgba(192, 132, 252, 0.15)',
+                        border: '1px solid rgba(192, 132, 252, 0.3)',
+                        color: '#c084fc',
+                      }}
+                    >
+                      <Megaphone style={{ width: '1.05rem', height: '1.05rem' }} />
                     </div>
-
-                    {detailsVisible && (
-                      <div style={{ marginTop: '0.85rem', paddingTop: '0.85rem', borderTop: '1px solid rgba(56, 189, 248, 0.16)', fontSize: '0.75rem', fontFamily: 'monospace', backgroundColor: '#030712', padding: '0.85rem', borderRadius: '0.75rem', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                        <div style={{ color: '#94a3b8', fontFamily: 'sans-serif', fontWeight: 700, marginBottom: '0.25rem' }}>
-                          Encrypted Parameter Payload Manifest ({s.protocol.toUpperCase()}):
-                        </div>
-                        <div>Host: <span style={{ color: '#38bdf8' }}>{s.host}</span></div>
-                        {s.dnsttNameserver && <div>DNSTT Nameserver: <span style={{ color: '#34d399' }}>{s.dnsttNameserver}</span></div>}
-                        {s.dnsttPubkey && <div>DNSTT Pubkey: <span style={{ color: '#c084fc', wordBreak: 'break-all' }}>{s.dnsttPubkey}</span></div>}
-                        {s.v2rayUuid && <div>V2Ray UUID: <span style={{ color: '#c084fc' }}>{s.v2rayUuid}</span></div>}
-                        {s.v2raySni && <div>SNI: <span style={{ color: '#34d399' }}>{s.v2raySni}</span></div>}
-                        {s.v2rayWsHost && <div>WS Host: <span style={{ color: '#34d399' }}>{s.v2rayWsHost}</span></div>}
-                        {s.v2rayWsPath && <div>WS Path: <span style={{ color: '#38bdf8' }}>{s.v2rayWsPath}</span></div>}
-                        {s.v2rayPublicKey && <div>Reality Public Key: <span style={{ color: '#38bdf8', wordBreak: 'break-all' }}>{s.v2rayPublicKey}</span></div>}
-                        {s.hysteriaAuth && <div>Hysteria2 Auth: <span style={{ color: '#34d399' }}>{s.hysteriaAuth}</span></div>}
-                        {s.slipstreamDomain && <div>Slipstream Domain: <span style={{ color: '#34d399' }}>{s.slipstreamDomain}</span></div>}
-                        {s.payload && <div>Payload / Config: <span style={{ color: '#fbbf24', whiteSpace: 'pre-wrap' }}>{s.payload}</span></div>}
-                      </div>
-                    )}
+                    <div>
+                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                        App Broadcast & Styled HTML Message
+                      </h3>
+                      <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                        Supports plain text or styled HTML with clickable WhatsApp / phone links
+                      </p>
+                    </div>
                   </div>
-                );
-              })
+                </div>
+
+                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <textarea
+                    value={announcement}
+                    onChange={(e) => setAnnouncement(e.target.value)}
+                    rows={4}
+                    placeholder="Enter server announcement or styled HTML (<div style='...'>...</div>)..."
+                    style={{ fontFamily: 'monospace', fontSize: '0.76rem' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveAnnouncement}
+                    className="btn-fleet-primary"
+                    style={{ width: '100%' }}
+                  >
+                    <Send style={{ width: '0.9rem', height: '0.9rem' }} />
+                    <span>Publish Broadcast to VPN App</span>
+                  </button>
+                </div>
+              </section>
             )}
           </div>
-        </section>
+        </div>
       </main>
     </div>
   );

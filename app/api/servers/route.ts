@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { convertToApkServerStructure, encryptManifest } from '../../lib/crypto';
 import { VpnServerItem } from '../../lib/types';
-import { verifyAdminRequest } from '../../lib/auth';
+import { verifyAdminRequest, getFirebaseAccessToken, FIREBASE_RTDB_URL } from '../../lib/auth';
 import fs from 'fs';
 import path from 'path';
 
@@ -146,8 +146,17 @@ async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?
         },
       }),
     });
+
+    const fbToken = await getFirebaseAccessToken();
+    if (fbToken) {
+      await fetch(`${FIREBASE_RTDB_URL}/tweve_fleet.json?access_token=${fbToken}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fullPayload),
+      });
+    }
   } catch (err) {
-    console.error('Error syncing manifest to cloud Gist:', err);
+    console.error('Error syncing manifest to cloud Gist / Firebase:', err);
   }
 }
 
@@ -162,7 +171,7 @@ export async function GET(req: NextRequest) {
 
   // Protect raw admin & raw_apk formats: require authenticated admin session
   if (format === 'admin' || format === 'raw_apk') {
-    const auth = verifyAdminRequest(req);
+    const auth = await verifyAdminRequest(req);
     if (!auth.valid) {
       return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
     }
@@ -194,7 +203,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = verifyAdminRequest(req);
+  const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
@@ -284,7 +293,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = verifyAdminRequest(req);
+  const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
@@ -316,7 +325,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = verifyAdminRequest(req);
+  const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
