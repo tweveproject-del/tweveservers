@@ -168,15 +168,44 @@ interface AdminRecord {
   source?: string;
 }
 
+interface ServerTelemetryEntry {
+  serverId: string;
+  serverName: string;
+  activeUsers: number;
+  totalUsers: number;
+  bytesUp: number;
+  bytesDown: number;
+  totalBytes: number;
+  totalMB: string;
+  totalGB: string;
+  formattedTotal: string;
+  formattedDown: string;
+  formattedUp: string;
+}
+
 interface FleetAnalytics {
   activeUsersCount: number;
   totalConfiguredUsersCount: number;
-  activeServersCount: number;
-  totalServersCount: number;
+  activeServersCount?: number;
+  totalServersCount?: number;
   protocolBreakdown: Record<string, number>;
+  topServers?: Record<string, number>;
+  serverTelemetry?: Record<string, ServerTelemetryEntry>;
   bandwidth: {
+    totalUpBytes?: number;
+    totalDownBytes?: number;
+    totalBytes?: number;
+    liveUpBytes?: number;
+    liveDownBytes?: number;
+    liveTotalBytes?: number;
     totalUpMB: number;
     totalDownMB: number;
+    totalMB?: number;
+    totalGB?: number;
+    formattedTotal?: string;
+    formattedDown?: string;
+    formattedUp?: string;
+    formattedLiveTotal?: string;
   };
   liveSampledSessions: Array<{
     deviceId: string;
@@ -185,10 +214,17 @@ interface FleetAnalytics {
     protocol: string;
     country: string;
     ip: string;
+    status?: string;
     connectedSince: number;
     lastPing: number;
     bytesUp: number;
     bytesDown: number;
+    totalBytesUp?: number;
+    totalBytesDown?: number;
+    formattedSessionTotal?: string;
+    formattedAllTimeTotal?: string;
+    formattedDown?: string;
+    formattedUp?: string;
   }>;
 }
 
@@ -382,7 +418,7 @@ export default function TweveServerFleetAdmin() {
   const handleLogout = async () => {
     try {
       await fetch('/api/auth', { method: 'DELETE' });
-    } catch {}
+    } catch { }
     setIsAuthenticated(false);
     setAdminEmail('');
     setServers([]);
@@ -975,9 +1011,8 @@ export default function TweveServerFleetAdmin() {
               gap: '0.75rem',
               background:
                 notification.type === 'success' ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.16)',
-              border: `1px solid ${
-                notification.type === 'success' ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
-              }`,
+              border: `1px solid ${notification.type === 'success' ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
+                }`,
               color: notification.type === 'success' ? '#6ee7b7' : '#fda4af',
               fontSize: '0.82rem',
             }}
@@ -1000,21 +1035,24 @@ export default function TweveServerFleetAdmin() {
           </div>
         )}
 
-        {/* Real-time Fleet Telemetry Bar (2x2 on Phone/Tablet, 4-col on PC) */}
+        {/* Real-time Fleet Telemetry Bar (2x2 on Phone/Tablet, 3-col on PC) */}
         <div className="fleet-kpi-grid">
           <div className="kpi-stat-box">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: analytics.activeUsersCount > 0 ? '#10b981' : '#64748b', display: 'inline-block' }}></span>
-                Connected
+                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: analytics.activeUsersCount > 0 ? '#10b981' : '#64748b', display: 'inline-block', boxShadow: analytics.activeUsersCount > 0 ? '0 0 8px #10b981' : 'none' }}></span>
+                Connected Users
               </span>
               <Users style={{ width: '0.95rem', height: '0.95rem', color: '#34d399' }} />
             </div>
-            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#ffffff', fontFamily: 'monospace' }}>
                 {analytics.activeUsersCount}
               </span>
-              <span style={{ fontSize: '0.68rem', color: '#34d399', fontWeight: 600 }}>Live</span>
+              <span style={{ fontSize: '0.68rem', color: '#34d399', fontWeight: 700 }}>Live Online</span>
+            </div>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+              Total Users: <strong style={{ color: '#e2e8f0' }}>{analytics.totalConfiguredUsersCount || 0}</strong>
             </div>
           </div>
 
@@ -1029,22 +1067,38 @@ export default function TweveServerFleetAdmin() {
               <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#38bdf8', fontFamily: 'monospace' }}>
                 {servers.filter((s) => s.isActive).length}
               </span>
-              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>/ {servers.length}</span>
+              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>/ {servers.length} Servers</span>
+            </div>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+              In Use Now: <strong style={{ color: '#38bdf8' }}>{Object.values(analytics.serverTelemetry || {}).filter((st) => st.activeUsers > 0).length > 0 ? new Set(Object.values(analytics.serverTelemetry || {}).filter((st) => st.activeUsers > 0).map((st) => st.serverId)).size : 0}</strong>
             </div>
           </div>
 
           <div className="kpi-stat-box">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Traffic
+                Total Data (MB / GB)
               </span>
               <Activity style={{ width: '0.95rem', height: '0.95rem', color: '#fbbf24' }} />
             </div>
-            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
-              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
-                {analytics.bandwidth.totalDownMB}
+            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.45rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '1.45rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
+                {analytics.bandwidth.formattedTotal ||
+                  ((Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0))) >= 1024)
+                    ? `${((Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0)))) / 1024).toFixed(2)} GB`
+                    : `${Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0))).toFixed(2)} MB`)}
               </span>
-              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>MB</span>
+              <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                ({Number(analytics.bandwidth.totalGB ?? ((Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0)) / 1024)).toFixed(3)} GB)
+              </span>
+            </div>
+            <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.65rem', fontSize: '0.68rem', fontFamily: 'monospace', flexWrap: 'wrap' }}>
+              <span style={{ color: '#34d399' }}>
+                ↓ {analytics.bandwidth.formattedDown || `${Number(analytics.bandwidth.totalDownMB || 0).toFixed(2)} MB`}
+              </span>
+              <span style={{ color: '#38bdf8' }}>
+                ↑ {analytics.bandwidth.formattedUp || `${Number(analytics.bandwidth.totalUpMB || 0).toFixed(2)} MB`}
+              </span>
             </div>
           </div>
         </div>
@@ -1891,6 +1945,18 @@ export default function TweveServerFleetAdmin() {
                     filteredServers.map((s) => {
                       const detailsVisible = showConfigDetails[s.id] || false;
                       const countryObj = COUNTRIES.find((c) => c.code === s.country);
+                      const srvStats =
+                        analytics.serverTelemetry?.[s.id] ||
+                        analytics.serverTelemetry?.[s.name];
+                      const activeUsersOnServer =
+                        srvStats?.activeUsers ??
+                        analytics.topServers?.[s.id] ??
+                        analytics.topServers?.[s.name] ??
+                        0;
+                      const totalUsersOnServer = Math.max(
+                        activeUsersOnServer,
+                        srvStats?.totalUsers ?? (s.connectedUsersCount || 0)
+                      );
                       return (
                         <div
                           key={s.id}
@@ -1968,6 +2034,64 @@ export default function TweveServerFleetAdmin() {
                                   }}
                                 >
                                   {s.host}
+                                </div>
+                                {/* Per-Server Live Users & MB/GB Usage Badges */}
+                                <div
+                                  style={{
+                                    marginTop: '0.38rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.45rem',
+                                    flexWrap: 'wrap',
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.66rem',
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.3rem',
+                                      padding: '0.12rem 0.48rem',
+                                      borderRadius: '0.4rem',
+                                      background:
+                                        activeUsersOnServer > 0
+                                          ? 'rgba(16, 185, 129, 0.16)'
+                                          : 'rgba(30, 41, 59, 0.65)',
+                                      border:
+                                        activeUsersOnServer > 0
+                                          ? '1px solid rgba(16, 185, 129, 0.4)'
+                                          : '1px solid rgba(71, 85, 105, 0.35)',
+                                      color: activeUsersOnServer > 0 ? '#34d399' : '#94a3b8',
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    <Users style={{ width: '0.68rem', height: '0.68rem' }} />
+                                    {activeUsersOnServer} Online ({totalUsersOnServer} users)
+                                  </span>
+
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.35rem',
+                                      padding: '0.12rem 0.48rem',
+                                      borderRadius: '0.4rem',
+                                      background: 'rgba(251, 191, 36, 0.12)',
+                                      border: '1px solid rgba(251, 191, 36, 0.3)',
+                                      color: '#fcd34d',
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    <Activity style={{ width: '0.68rem', height: '0.68rem' }} />
+                                    {srvStats?.formattedTotal || '0.00 MB'}
+                                    <span style={{ color: '#34d399', fontWeight: 600 }}>
+                                      ↓{srvStats?.formattedDown || '0.00 MB'}
+                                    </span>
+                                    <span style={{ color: '#38bdf8', fontWeight: 600 }}>
+                                      ↑{srvStats?.formattedUp || '0.00 MB'}
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -2096,6 +2220,152 @@ export default function TweveServerFleetAdmin() {
                               )}
                             </div>
                           )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Live Connected Users & MB/GB Bandwidth Breakdown Card */}
+            {(mobileViewTab === 'all' || mobileViewTab === 'fleet') && (
+              <section className="fleet-card fleet-section-pad">
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.6rem',
+                    paddingBottom: '0.85rem',
+                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <div
+                      style={{
+                        padding: '0.4rem',
+                        borderRadius: '0.7rem',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        color: '#34d399',
+                      }}
+                    >
+                      <Users style={{ width: '1.05rem', height: '1.05rem' }} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                        Users & Bandwidth Telemetry ({analytics.activeUsersCount} Online / {analytics.totalConfiguredUsersCount || 0} Total)
+                      </h3>
+                      <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                        Real-time MB / GB consumption across all connected client devices
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchAnalytics}
+                    className="btn-fleet-secondary"
+                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
+                  >
+                    <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
+                    <span>Sync Usage</span>
+                  </button>
+                </div>
+
+                <div style={{ marginTop: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {(!analytics.liveSampledSessions || analytics.liveSampledSessions.length === 0) ? (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        padding: '1.5rem 1rem',
+                        color: '#64748b',
+                        fontSize: '0.76rem',
+                      }}
+                    >
+                      No device telemetry sessions recorded yet. Users will appear here automatically as they connect.
+                    </div>
+                  ) : (
+                    analytics.liveSampledSessions.slice(0, 15).map((sess) => {
+                      const isOnline = sess.status === 'connected' || (Date.now() - sess.lastPing <= 90000 && sess.status !== 'offline');
+                      const sessTotalBytes = (Number(sess.totalBytesDown ?? sess.bytesDown) || 0) + (Number(sess.totalBytesUp ?? sess.bytesUp) || 0);
+                      const sessTotalMB = sessTotalBytes / (1024 * 1024);
+                      const sessTotalGB = sessTotalBytes / (1024 * 1024 * 1024);
+                      const displayTotal = sess.formattedAllTimeTotal || (sessTotalGB >= 1 ? `${sessTotalGB.toFixed(2)} GB` : `${sessTotalMB.toFixed(2)} MB`);
+                      return (
+                        <div
+                          key={sess.deviceId}
+                          style={{
+                            padding: '0.65rem 0.8rem',
+                            borderRadius: '0.7rem',
+                            backgroundColor: 'rgba(3, 7, 18, 0.75)',
+                            border: isOnline
+                              ? '1px solid rgba(16, 185, 129, 0.35)'
+                              : '1px solid rgba(56, 189, 248, 0.14)',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.6rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
+                            <span
+                              style={{
+                                width: '0.5rem',
+                                height: '0.5rem',
+                                borderRadius: '9999px',
+                                backgroundColor: isOnline ? '#10b981' : '#64748b',
+                                boxShadow: isOnline ? '0 0 8px #10b981' : 'none',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#ffffff', fontFamily: 'monospace' }}>
+                                  {sess.serverName || 'Tweve Server'}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.6rem',
+                                    fontWeight: 800,
+                                    padding: '0.08rem 0.4rem',
+                                    borderRadius: '0.3rem',
+                                    background: isOnline ? 'rgba(16, 185, 129, 0.16)' : 'rgba(100, 116, 139, 0.2)',
+                                    color: isOnline ? '#34d399' : '#94a3b8',
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  {isOnline ? 'Connected' : 'Offline'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.66rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '0.12rem' }}>
+                                Device: {String(sess.deviceId).slice(0, 12)} • {sess.protocol}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              fontFamily: 'monospace',
+                              fontSize: '0.7rem',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <span style={{ color: '#fcd34d', fontWeight: 800 }}>
+                              {displayTotal}
+                            </span>
+                            <span style={{ color: '#34d399' }}>
+                              ↓{sess.formattedDown || `${((Number(sess.totalBytesDown ?? sess.bytesDown) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                            </span>
+                            <span style={{ color: '#38bdf8' }}>
+                              ↑{sess.formattedUp || `${((Number(sess.totalBytesUp ?? sess.bytesUp) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                            </span>
+                          </div>
                         </div>
                       );
                     })
