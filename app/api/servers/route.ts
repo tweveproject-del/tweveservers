@@ -10,6 +10,83 @@ import {
 
 const FIRESTORE_DOC_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/tweve_fleet/manifest`;
 
+function computeExpiresAt(body: any, existingServer?: VpnServerItem): number | null {
+  const unit = body.expireDurationUnit || existingServer?.expireDurationUnit || 'never';
+  if (unit === 'never') return null;
+
+  if (body.expiresAt !== undefined) {
+    const explicit = Number(body.expiresAt);
+    return explicit > 0 ? explicit : null;
+  }
+
+  const val = Number(body.expireDurationValue || 0);
+  if (!val || val <= 0) return existingServer?.expiresAt || null;
+
+  const now = Date.now();
+  const unitMultipliers: Record<string, number> = {
+    minutes: 60 * 1000,
+    hours: 60 * 60 * 1000,
+    days: 24 * 60 * 60 * 1000,
+    weeks: 7 * 24 * 60 * 60 * 1000,
+    months: 30 * 24 * 60 * 60 * 1000,
+  };
+  const mult = unitMultipliers[unit];
+  return mult ? now + Math.round(val * mult) : existingServer?.expiresAt || null;
+}
+
+/**
+ * Enforces server expiration lifecycle:
+ * - If a server has reached `expiresAt` and `expireAction === 'delete'` (default),
+ *   it is automatically deleted from the database.
+ * - If `expireAction === 'hide'`, it is marked `isExpired = true` and `isActive = false`
+ *   so users never see it while admins can still view or renew it.
+ */
+async function enforceServerExpirations(manifest: {
+  servers: VpnServerItem[];
+  announcement: string;
+  updated_at: number;
+}): Promise<{ servers: VpnServerItem[]; announcement: string; updated_at: number }> {
+  const now = Date.now();
+  let dirty = false;
+  const survivingServers: VpnServerItem[] = [];
+
+  for (const s of manifest.servers) {
+    const exp = s.expiresAt ? Number(s.expiresAt) : 0;
+    if (exp > 0 && now >= exp) {
+      const action = s.expireAction || 'delete';
+      if (action === 'delete') {
+        // Auto-delete from database
+        dirty = true;
+        continue;
+      } else {
+        // Hide from users, keep in admin list
+        if (!s.isExpired || s.isActive !== false) {
+          s.isExpired = true;
+          s.isActive = false;
+          s.updatedAt = now;
+          dirty = true;
+        }
+      }
+    } else if (exp > 0 && now < exp && s.isExpired) {
+      s.isExpired = false;
+      dirty = true;
+    }
+    survivingServers.push(s);
+  }
+
+  if (dirty) {
+    manifest.servers = survivingServers;
+    manifest.updated_at = now;
+    try {
+      await writeManifest(manifest);
+    } catch (err) {
+      console.error('Failed to persist auto-expiration update:', err);
+    }
+  }
+
+  return manifest;
+}
+
 /**
  * Reads the server fleet manifest strictly from private server-side Firebase Database
  * (Firebase Realtime Database `/tweve_fleet` with Cloud Firestore fallback).
@@ -31,11 +108,11 @@ async function readManifest(): Promise<{ servers: VpnServerItem[]; announcement:
             : parsed.servers && typeof parsed.servers === 'object'
               ? Object.values(parsed.servers)
               : [];
-          return {
+          return await enforceServerExpirations({
             servers: serversList as VpnServerItem[],
             announcement: typeof parsed.announcement === 'string' ? parsed.announcement : '',
             updated_at: Number(parsed.updated_at || Date.now()),
-          };
+          });
         }
       }
     } catch (err) {
@@ -54,11 +131,11 @@ async function readManifest(): Promise<{ servers: VpnServerItem[]; announcement:
         if (jsonStr) {
           const parsed = JSON.parse(jsonStr);
           if (parsed && Array.isArray(parsed.servers)) {
-            return {
+            return await enforceServerExpirations({
               servers: parsed.servers,
               announcement: parsed.announcement || '',
               updated_at: parsed.updated_at || Date.now(),
-            };
+            });
           }
         }
       }
@@ -175,6 +252,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const manifest = await readManifest();
 
+    const existingIdx = manifest.servers.findIndex((s) => s.id === body.id);
+    const existingSrv = existingIdx >= 0 ? manifest.servers[existingIdx] : undefined;
+    const computedExpiry = computeExpiresAt(body, existingSrv);
+
     const newServer: VpnServerItem = {
       id:
         body.id ||
@@ -237,12 +318,16 @@ export async function POST(req: NextRequest) {
       wireguardConfig: body.wireguardConfig || '',
       isLocked: body.isLocked !== undefined ? Boolean(body.isLocked) : true,
       isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
+      expiresAt: computedExpiry,
+      expireDurationValue: body.expireDurationValue !== undefined ? Number(body.expireDurationValue) : undefined,
+      expireDurationUnit: body.expireDurationUnit || 'never',
+      expireAction: body.expireAction === 'hide' ? 'hide' : 'delete',
+      isExpired: Boolean(computedExpiry && computedExpiry > 0 && Date.now() >= computedExpiry),
       connectedUsersCount: Number(body.connectedUsersCount || 0),
-      createdAt: Date.now(),
+      createdAt: existingSrv?.createdAt || Date.now(),
       updatedAt: Date.now(),
     };
 
-    const existingIdx = manifest.servers.findIndex((s) => s.id === newServer.id);
     if (existingIdx >= 0) {
       manifest.servers[existingIdx] = {
         ...manifest.servers[existingIdx],
@@ -276,11 +361,24 @@ export async function PUT(req: NextRequest) {
     if (body.id) {
       const idx = manifest.servers.findIndex((s) => s.id === body.id);
       if (idx >= 0) {
-        manifest.servers[idx] = {
-          ...manifest.servers[idx],
+        const current = manifest.servers[idx];
+        const nextServer: VpnServerItem = {
+          ...current,
           ...body,
           updatedAt: Date.now(),
         };
+        if (body.expireDurationUnit !== undefined || body.expiresAt !== undefined) {
+          nextServer.expiresAt = computeExpiresAt(body, current);
+          nextServer.isExpired = Boolean(
+            nextServer.expiresAt && nextServer.expiresAt > 0 && Date.now() >= nextServer.expiresAt
+          );
+        } else if (body.isActive === true && current.isExpired) {
+          // If admin manually re-enables a hidden expired server without setting a new timer, clear expired flag
+          nextServer.expiresAt = null;
+          nextServer.expireDurationUnit = 'never';
+          nextServer.isExpired = false;
+        }
+        manifest.servers[idx] = nextServer;
       }
     }
 

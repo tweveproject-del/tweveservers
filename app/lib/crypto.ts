@@ -45,8 +45,10 @@ export function convertToApkServerStructure(servers: any[], announcement = '') {
   const apkServers: any[] = [];
   const apkConfigs: Record<string, any> = {};
 
+  const now = Date.now();
   for (const s of servers) {
-    if (s.isActive === false) continue;
+    if (s.isActive === false || s.isExpired === true) continue;
+    if (s.expiresAt && Number(s.expiresAt) > 0 && now >= Number(s.expiresAt)) continue;
 
     const configId = `cfg_${s.id}`;
     const tierStr = (s.tier || 'FREE').toLowerCase(); // "free", "vip", "premium"
@@ -188,8 +190,10 @@ export function convertToApkServerStructure(servers: any[], announcement = '') {
       slipstreamDomain: s.slipstreamDomain || s.dnsttNameserver || '',
       slipstreamCert: s.slipstreamCert || s.dnsttPubkey || '',
       slipstreamDirect: Boolean(s.slipstreamDirect),
-      // Protection flag
+      // Protection & Expiration flags
       isLocked: Boolean(s.isLocked),
+      expiresAt: s.expiresAt ? Number(s.expiresAt) : 0,
+      expireAction: s.expireAction || 'delete',
     };
 
     const apkConfig: Record<string, any> = {

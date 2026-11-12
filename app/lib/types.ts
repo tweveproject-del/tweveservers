@@ -72,9 +72,14 @@ export interface VpnServerItem {
   slipstreamDirect?: boolean;
   // WireGuard
   wireguardConfig?: string;
-  // Protection & Telemetry
+  // Protection, Expiration & Telemetry
   isLocked: boolean; // Protect configuration from user inspection
   isActive: boolean;
+  expiresAt?: number | null; // Unix timestamp in ms (null or 0 = never expires)
+  expireDurationValue?: number;
+  expireDurationUnit?: 'never' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'custom';
+  expireAction?: 'delete' | 'hide'; // 'delete' = auto-remove from DB on expiry, 'hide' = hide from users & keep in admin
+  isExpired?: boolean;
   connectedUsersCount?: number;
   createdAt?: number;
   updatedAt?: number;

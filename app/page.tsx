@@ -311,6 +311,15 @@ export default function TweveServerFleetAdmin() {
   // WireGuard Specific
   const [wireguardConfig, setWireguardConfig] = useState('');
 
+  // Server Expiration & Auto-Lifecycle State
+  const [expireDurationUnit, setExpireDurationUnit] = useState<
+    'never' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'custom'
+  >('never');
+  const [expireDurationValue, setExpireDurationValue] = useState('24');
+  const [expireCustomDate, setExpireCustomDate] = useState('');
+  const [expireAction, setExpireAction] = useState<'delete' | 'hide'>('delete');
+  const [nowTs, setNowTs] = useState<number>(() => Date.now());
+
   const notify = (type: 'success' | 'error', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 5000);
@@ -371,6 +380,39 @@ export default function TweveServerFleetAdmin() {
       if (interval) clearInterval(interval);
     };
   }, [fetchServers, fetchAnalytics]);
+
+  // Live 1-second countdown ticker & automatic expiration sync trigger
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const timer = setInterval(() => {
+      const currentNow = Date.now();
+      setNowTs(currentNow);
+      const hasNewlyExpired = servers.some((s) => {
+        const exp = s.expiresAt ? Number(s.expiresAt) : 0;
+        if (exp <= 0 || currentNow < exp) return false;
+        if ((s.expireAction || 'delete') === 'delete') return true;
+        return !s.isExpired || s.isActive !== false;
+      });
+      if (hasNewlyExpired) {
+        fetchServers();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated, servers, fetchServers]);
+
+  const formatCountdown = (expiresAt?: number | null) => {
+    if (!expiresAt || expiresAt <= 0) return null;
+    const diff = expiresAt - nowTs;
+    if (diff <= 0) return 'EXPIRED';
+    const totalSec = Math.floor(diff / 1000);
+    const days = Math.floor(totalSec / 86400);
+    const hours = Math.floor((totalSec % 86400) / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    if (days > 0) return `${days}d ${hours}h ${mins}m`;
+    if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+    return `${mins}m ${secs}s`;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -462,6 +504,15 @@ export default function TweveServerFleetAdmin() {
     setSlipstreamCert(s.slipstreamCert || '');
     setSlipstreamDirect(Boolean(s.slipstreamDirect));
     setWireguardConfig(s.wireguardConfig || '');
+    setExpireDurationUnit(s.expireDurationUnit || (s.expiresAt ? 'custom' : 'never'));
+    setExpireDurationValue(String(s.expireDurationValue || 24));
+    setExpireAction(s.expireAction === 'hide' ? 'hide' : 'delete');
+    if (s.expiresAt && s.expiresAt > 0) {
+      const d = new Date(s.expiresAt - new Date().getTimezoneOffset() * 60000);
+      setExpireCustomDate(d.toISOString().slice(0, 16));
+    } else {
+      setExpireCustomDate('');
+    }
     if (mobileViewTab === 'fleet') {
       setMobileViewTab('deploy');
     }
@@ -629,6 +680,18 @@ export default function TweveServerFleetAdmin() {
         slipstreamCert: slipstreamCert.trim() || dnsttPubkey.trim(),
         slipstreamDirect,
         wireguardConfig,
+        expireDurationUnit,
+        expireDurationValue:
+          expireDurationUnit !== 'never' && expireDurationUnit !== 'custom'
+            ? Number(expireDurationValue || 0)
+            : undefined,
+        expiresAt:
+          expireDurationUnit === 'never'
+            ? null
+            : expireDurationUnit === 'custom' && expireCustomDate
+              ? new Date(expireCustomDate).getTime()
+              : undefined,
+        expireAction,
       };
 
       const res = await fetch('/api/servers', {
@@ -645,6 +708,8 @@ export default function TweveServerFleetAdmin() {
         );
         setName('');
         setEditingServerId(null);
+        setExpireDurationUnit('never');
+        setExpireCustomDate('');
         fetchAnalytics();
       } else {
         notify('error', data.error || 'Failed to deploy server');
@@ -1800,6 +1865,189 @@ export default function TweveServerFleetAdmin() {
                 </div>
               </div>
 
+              {/* Server Expiration & Auto-Lifecycle Section */}
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.95rem 1.05rem',
+                  borderRadius: '0.9rem',
+                  backgroundColor: '#030712',
+                  border: '1px solid rgba(251, 191, 36, 0.25)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.6rem',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: '0.73rem',
+                        fontWeight: 800,
+                        color: '#fbbf24',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.07em',
+                      }}
+                    >
+                      ⏱ Server Expiration & Auto-Lifecycle
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                      Set expiration in minutes, hours, days, weeks, months, or custom date, and choose whether expired servers auto-delete from Firebase or hide from users.
+                    </div>
+                  </div>
+
+                  {/* Quick Duration Presets */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.32rem' }}>
+                    {[
+                      { label: 'Unlimited', unit: 'never' as const, val: '0' },
+                      { label: '15m', unit: 'minutes' as const, val: '15' },
+                      { label: '30m', unit: 'minutes' as const, val: '30' },
+                      { label: '1h', unit: 'hours' as const, val: '1' },
+                      { label: '6h', unit: 'hours' as const, val: '6' },
+                      { label: '12h', unit: 'hours' as const, val: '12' },
+                      { label: '24h', unit: 'hours' as const, val: '24' },
+                      { label: '3d', unit: 'days' as const, val: '3' },
+                      { label: '7d', unit: 'days' as const, val: '7' },
+                      { label: '30d', unit: 'days' as const, val: '30' },
+                    ].map((preset) => {
+                      const isSelected =
+                        preset.unit === 'never'
+                          ? expireDurationUnit === 'never'
+                          : expireDurationUnit === preset.unit && expireDurationValue === preset.val;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            setExpireDurationUnit(preset.unit);
+                            if (preset.unit !== 'never') setExpireDurationValue(preset.val);
+                          }}
+                          style={{
+                            padding: '0.22rem 0.5rem',
+                            borderRadius: '0.45rem',
+                            fontSize: '0.66rem',
+                            fontWeight: 700,
+                            border: isSelected
+                              ? '1px solid #fbbf24'
+                              : '1px solid rgba(148, 163, 184, 0.25)',
+                            background: isSelected
+                              ? 'rgba(251, 191, 36, 0.18)'
+                              : 'rgba(15, 23, 42, 0.7)',
+                            color: isSelected ? '#fcd34d' : '#94a3b8',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="fleet-form-grid-3">
+                  <div>
+                    <label
+                      style={{
+                        fontSize: '0.7rem',
+                        color: '#94a3b8',
+                        display: 'block',
+                        marginBottom: '0.3rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Expiration Mode / Time Unit
+                    </label>
+                    <select
+                      value={expireDurationUnit}
+                      onChange={(e) => setExpireDurationUnit(e.target.value as any)}
+                    >
+                      <option value="never">Unlimited (Never Expires)</option>
+                      <option value="minutes">Minutes</option>
+                      <option value="hours">Hours</option>
+                      <option value="days">Days</option>
+                      <option value="weeks">Weeks</option>
+                      <option value="months">Months</option>
+                      <option value="custom">Custom Date & Time</option>
+                    </select>
+                  </div>
+
+                  {expireDurationUnit !== 'never' && expireDurationUnit !== 'custom' && (
+                    <div>
+                      <label
+                        style={{
+                          fontSize: '0.7rem',
+                          color: '#94a3b8',
+                          display: 'block',
+                          marginBottom: '0.3rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Duration ({expireDurationUnit}) *
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={expireDurationValue}
+                        onChange={(e) => setExpireDurationValue(e.target.value)}
+                        placeholder="e.g. 30"
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  )}
+
+                  {expireDurationUnit === 'custom' && (
+                    <div>
+                      <label
+                        style={{
+                          fontSize: '0.7rem',
+                          color: '#94a3b8',
+                          display: 'block',
+                          marginBottom: '0.3rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Expiration Date & Time *
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={expireCustomDate}
+                        onChange={(e) => setExpireCustomDate(e.target.value)}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  )}
+
+                  {expireDurationUnit !== 'never' && (
+                    <div>
+                      <label
+                        style={{
+                          fontSize: '0.7rem',
+                          color: '#94a3b8',
+                          display: 'block',
+                          marginBottom: '0.3rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        When Expired Action
+                      </label>
+                      <select
+                        value={expireAction}
+                        onChange={(e) => setExpireAction(e.target.value as 'delete' | 'hide')}
+                      >
+                        <option value="delete">Auto-Delete from Database</option>
+                        <option value="hide">Hide from Users (Keep in Admin)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Action Button Bar */}
               <div
                 style={{
@@ -2092,6 +2340,58 @@ export default function TweveServerFleetAdmin() {
                                       ↑{srvStats?.formattedUp || '0.00 MB'}
                                     </span>
                                   </span>
+
+                                  {/* Expiration Countdown / Status Badge */}
+                                  {s.expiresAt && s.expiresAt > 0 ? (
+                                    (() => {
+                                      const countdown = formatCountdown(s.expiresAt);
+                                      const isExp = countdown === 'EXPIRED' || s.isExpired;
+                                      const modeLabel =
+                                        (s.expireAction || 'delete') === 'hide'
+                                          ? 'Hide on Expiry'
+                                          : 'Auto-Delete';
+                                      return (
+                                        <span
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.32rem',
+                                            padding: '0.12rem 0.5rem',
+                                            borderRadius: '0.4rem',
+                                            background: isExp
+                                              ? 'rgba(244, 63, 94, 0.18)'
+                                              : 'rgba(168, 85, 247, 0.16)',
+                                            border: isExp
+                                              ? '1px solid rgba(244, 63, 94, 0.45)'
+                                              : '1px solid rgba(168, 85, 247, 0.38)',
+                                            color: isExp ? '#fda4af' : '#d8b4fe',
+                                            fontWeight: 700,
+                                          }}
+                                        >
+                                          ⏱{' '}
+                                          {isExp
+                                            ? 'EXPIRED · HIDDEN FROM USERS'
+                                            : `${countdown} left · ${modeLabel}`}
+                                        </span>
+                                      );
+                                    })()
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.28rem',
+                                        padding: '0.12rem 0.46rem',
+                                        borderRadius: '0.4rem',
+                                        background: 'rgba(15, 23, 42, 0.7)',
+                                        border: '1px solid rgba(71, 85, 105, 0.3)',
+                                        color: '#64748b',
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      ∞ No Expiry
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
