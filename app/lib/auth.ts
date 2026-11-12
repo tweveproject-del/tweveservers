@@ -290,4 +290,4 @@ export async function verifyAdminRequest(req: NextRequest): Promise<{ valid: boo
   return { valid: true, email: verified.email };
 }
 
-export { SESSION_COOKIE_NAME, FIREBASE_RTDB_URL };
+export { SESSION_COOKIE_NAME, FIREBASE_RTDB_URL, FIREBASE_PROJECT_ID };

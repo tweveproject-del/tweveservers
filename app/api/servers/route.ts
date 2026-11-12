@@ -1,100 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { convertToApkServerStructure, encryptManifest } from '../../lib/crypto';
 import { VpnServerItem } from '../../lib/types';
-import { verifyAdminRequest, getFirebaseAccessToken, FIREBASE_RTDB_URL } from '../../lib/auth';
-import fs from 'fs';
-import path from 'path';
+import {
+  verifyAdminRequest,
+  getFirebaseAccessToken,
+  FIREBASE_RTDB_URL,
+  FIREBASE_PROJECT_ID,
+} from '../../lib/auth';
 
-const DATA_FILE = path.join(process.cwd(), 'data', 'servers.json');
-const ANNOUNCEMENT_FILE = path.join(process.cwd(), 'data', 'announcement.json');
-const TMP_CACHE_FILE = '/tmp/tweve_fleet_manifest.json';
-const GIST_ID = '54ff3427b094f3765f2743b460b311b0';
-const GIST_API_URL = `https://api.github.com/gists/${GIST_ID}`;
-const ENC_TOKEN_HEX = '3d32350508311c632c182b6910126d3e0308696f221d1b2c3e202c222e2a202d3f636a35382e313b';
+const FIRESTORE_DOC_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/tweve_fleet/manifest`;
 
-function getCloudAuthToken(): string {
-  const bytes = Buffer.from(ENC_TOKEN_HEX, 'hex');
-  const out = Buffer.alloc(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    out[i] = bytes[i] ^ 0x5a;
-  }
-  return out.toString('utf8');
-}
-
-function getCloudHeaders(): Record<string, string> {
-  return {
-    Authorization: `Bearer ${getCloudAuthToken()}`,
-    Accept: 'application/vnd.github+json',
-    'Content-Type': 'application/json',
-    'User-Agent': 'TweveServerFleet/1.0',
-  };
-}
-
-function readLocalManifest(): { servers: VpnServerItem[]; announcement: string; updated_at: number } {
-  let servers: VpnServerItem[] = [];
-  let announcement = '';
-  let updated_at = Date.now();
-
-  try {
-    if (fs.existsSync(TMP_CACHE_FILE)) {
-      const cached = JSON.parse(fs.readFileSync(TMP_CACHE_FILE, 'utf8'));
-      if (cached && Array.isArray(cached.servers)) {
-        return cached;
-      }
-    }
-  } catch {}
-
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      if (Array.isArray(raw)) {
-        servers = raw;
-      } else if (raw && Array.isArray(raw.servers)) {
-        servers = raw.servers;
-        if (raw.announcement) announcement = raw.announcement;
-        if (raw.updated_at) updated_at = raw.updated_at;
-      }
-    }
-    if (!announcement && fs.existsSync(ANNOUNCEMENT_FILE)) {
-      const annObj = JSON.parse(fs.readFileSync(ANNOUNCEMENT_FILE, 'utf8'));
-      announcement = annObj.announcement || '';
-    }
-  } catch (e) {
-    console.error('Error reading local servers.json:', e);
-  }
-
-  return { servers, announcement, updated_at };
-}
-
+/**
+ * Reads the server fleet manifest strictly from private server-side Firebase Database
+ * (Firebase Realtime Database `/tweve_fleet` with Cloud Firestore fallback).
+ * Zero local JSON files or public Gist URLs are ever read or exposed.
+ */
 async function readManifest(): Promise<{ servers: VpnServerItem[]; announcement: string; updated_at: number }> {
-  try {
-    const res = await fetch(GIST_API_URL, {
-      headers: getCloudHeaders(),
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const gist = await res.json();
-      const fileContent = gist?.files?.['fleet_manifest.json']?.content;
-      if (fileContent) {
-        const parsed = JSON.parse(fileContent);
-        if (parsed && Array.isArray(parsed.servers)) {
-          try {
-            fs.writeFileSync(TMP_CACHE_FILE, JSON.stringify(parsed), 'utf8');
-          } catch {}
+  const fbToken = await getFirebaseAccessToken();
+  if (fbToken) {
+    // 1. Primary: Private Firebase Realtime Database (`/tweve_fleet.json`)
+    try {
+      const rtdbRes = await fetch(`${FIREBASE_RTDB_URL}/tweve_fleet.json?access_token=${fbToken}`, {
+        cache: 'no-store',
+      });
+      if (rtdbRes.ok) {
+        const parsed = await rtdbRes.json();
+        if (parsed && typeof parsed === 'object') {
+          const serversList = Array.isArray(parsed.servers)
+            ? parsed.servers
+            : parsed.servers && typeof parsed.servers === 'object'
+              ? Object.values(parsed.servers)
+              : [];
           return {
-            servers: parsed.servers,
-            announcement: parsed.announcement || '',
-            updated_at: parsed.updated_at || Date.now(),
+            servers: serversList as VpnServerItem[],
+            announcement: typeof parsed.announcement === 'string' ? parsed.announcement : '',
+            updated_at: Number(parsed.updated_at || Date.now()),
           };
         }
       }
+    } catch (err) {
+      console.error('Error reading private Firebase RTDB manifest:', err);
     }
-  } catch (err) {
-    console.error('Error reading cloud Gist manifest:', err);
+
+    // 2. Secondary fallback: Private Cloud Firestore (`tweve_fleet/manifest`)
+    try {
+      const fsRes = await fetch(FIRESTORE_DOC_URL, {
+        headers: { Authorization: `Bearer ${fbToken}` },
+        cache: 'no-store',
+      });
+      if (fsRes.ok) {
+        const doc = await fsRes.json();
+        const jsonStr = doc?.fields?.payload?.stringValue;
+        if (jsonStr) {
+          const parsed = JSON.parse(jsonStr);
+          if (parsed && Array.isArray(parsed.servers)) {
+            return {
+              servers: parsed.servers,
+              announcement: parsed.announcement || '',
+              updated_at: parsed.updated_at || Date.now(),
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error reading private Cloud Firestore manifest:', err);
+    }
   }
-  return readLocalManifest();
+
+  return { servers: [], announcement: '', updated_at: Date.now() };
 }
 
+/**
+ * Writes the server fleet manifest strictly to private server-side Firebase Database
+ * (Firebase Realtime Database `/tweve_fleet` + `/tweve_fleet_apk` and Cloud Firestore `tweve_fleet/manifest`).
+ * Protected by OAuth2 Service Account credentials and `.read: false, .write: false` public security rules.
+ */
 async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?: string }) {
   const updated_at = Date.now();
   const fullPayload = {
@@ -103,66 +83,51 @@ async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?
     updated_at,
   };
 
-  try {
-    fs.writeFileSync(TMP_CACHE_FILE, JSON.stringify(fullPayload), 'utf8');
-  } catch {}
+  const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
+  const encrypted = encryptManifest(apkManifest);
+  const apkResponsePayload = {
+    data: encrypted,
+    encrypted_data: encrypted,
+    announcement: manifest.announcement || '',
+    updated_at,
+  };
 
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(manifest.servers, null, 2), 'utf8');
-    if (manifest.announcement !== undefined) {
-      fs.writeFileSync(
-        ANNOUNCEMENT_FILE,
-        JSON.stringify({ announcement: manifest.announcement, updated_at }, null, 2),
-        'utf8'
-      );
-    }
-  } catch {}
+  const fbToken = await getFirebaseAccessToken();
+  if (!fbToken) {
+    throw new Error('Failed to authenticate with private Firebase Database');
+  }
 
-  try {
-    const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
-    const encrypted = encryptManifest(apkManifest);
-    const apkResponsePayload = {
-      data: encrypted,
-      encrypted_data: encrypted,
-      announcement: manifest.announcement || '',
-      updated_at,
-    };
-
-    await fetch(GIST_API_URL, {
+  // 1. Write raw admin manifest & AES-256-GCM encrypted APK payload to private Firebase RTDB
+  await Promise.all([
+    fetch(`${FIREBASE_RTDB_URL}/tweve_fleet.json?access_token=${fbToken}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fullPayload),
+      cache: 'no-store',
+    }),
+    fetch(`${FIREBASE_RTDB_URL}/tweve_fleet_apk.json?access_token=${fbToken}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(apkResponsePayload),
+      cache: 'no-store',
+    }),
+    // 2. Mirror encrypted backup to private Cloud Firestore (`tweve_fleet/manifest`)
+    fetch(FIRESTORE_DOC_URL, {
       method: 'PATCH',
-      headers: getCloudHeaders(),
+      headers: {
+        Authorization: `Bearer ${fbToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        files: {
-          'fleet_manifest.json': {
-            content: JSON.stringify(fullPayload, null, 2),
-          },
-          'fleet_apk.json': {
-            content: JSON.stringify(apkResponsePayload, null, 2),
-          },
+        fields: {
+          payload: { stringValue: JSON.stringify(fullPayload) },
+          encrypted_apk: { stringValue: encrypted },
+          updated_at: { integerValue: String(updated_at) },
         },
       }),
-    });
-
-    const fbToken = await getFirebaseAccessToken();
-    if (fbToken) {
-      await fetch(`${FIREBASE_RTDB_URL}/tweve_fleet.json?access_token=${fbToken}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullPayload),
-      });
-    }
-  } catch (err) {
-    console.error('Error syncing manifest to cloud Gist / Firebase:', err);
-  }
-}
-
-async function syncFleetToCloudAndAssets(manifest: { servers: VpnServerItem[]; announcement?: string }) {
-  // Handled atomically inside writeManifest
-  void manifest;
+      cache: 'no-store',
+    }).catch(() => null),
+  ]);
 }
 
 export async function GET(req: NextRequest) {
@@ -179,20 +144,19 @@ export async function GET(req: NextRequest) {
 
   const manifest = await readManifest();
 
-  // If format=admin, return raw server objects for the dashboard UI
+  // If format=admin, return raw server objects for the authenticated dashboard UI only
   if (format === 'admin') {
     return NextResponse.json(manifest);
   }
 
   const apkManifest = convertToApkServerStructure(manifest.servers, manifest.announcement || '');
 
-  // If format=raw_apk, return the unencrypted APK structure for preview/debugging
+  // If format=raw_apk, return the unencrypted APK structure for authenticated admin preview only
   if (format === 'raw_apk') {
     return NextResponse.json(apkManifest);
   }
 
-  // Default / format=apk: return AES-256-GCM encrypted payload matching ServerConfigManager.smali
-  // NOTE: ServerConfigManager.smali checks jsonObject.has("data") and jsonObject.getString("data")
+  // Default / format=apk: return AES-256-GCM encrypted payload (zero plaintext server URLs exposed)
   const encrypted = encryptManifest(apkManifest);
   return NextResponse.json({
     data: encrypted,
@@ -212,7 +176,9 @@ export async function POST(req: NextRequest) {
     const manifest = await readManifest();
 
     const newServer: VpnServerItem = {
-      id: body.id || `srv_${(body.name || 'server').toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString(36)}`,
+      id:
+        body.id ||
+        `srv_${(body.name || 'server').toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString(36)}`,
       name: body.name || 'Unnamed Server',
       country: (body.country || 'TZ').toUpperCase(),
       tier: body.tier || 'FREE',
@@ -252,8 +218,7 @@ export async function POST(req: NextRequest) {
       v2rayPublicKey: body.v2rayPublicKey || '',
       v2rayShortId: body.v2rayShortId || '',
       v2rayFingerprint: body.v2rayFingerprint || 'chrome',
-      v2rayNetwork:
-        body.v2rayNetwork || (body.protocol === 'v2ray_ws' ? 'ws' : 'tcp'),
+      v2rayNetwork: body.v2rayNetwork || (body.protocol === 'v2ray_ws' ? 'ws' : 'tcp'),
       v2rayWsHost: body.v2rayWsHost || '',
       v2rayWsPath: body.v2rayWsPath || '/',
       v2rayAllowInsecure: Boolean(body.v2rayAllowInsecure),
@@ -279,13 +244,16 @@ export async function POST(req: NextRequest) {
 
     const existingIdx = manifest.servers.findIndex((s) => s.id === newServer.id);
     if (existingIdx >= 0) {
-      manifest.servers[existingIdx] = { ...manifest.servers[existingIdx], ...newServer, updatedAt: Date.now() };
+      manifest.servers[existingIdx] = {
+        ...manifest.servers[existingIdx],
+        ...newServer,
+        updatedAt: Date.now(),
+      };
     } else {
       manifest.servers.push(newServer);
     }
 
     await writeManifest(manifest);
-    await syncFleetToCloudAndAssets(manifest);
     return NextResponse.json({ success: true, server: newServer, manifest });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
@@ -317,7 +285,6 @@ export async function PUT(req: NextRequest) {
     }
 
     await writeManifest(manifest);
-    await syncFleetToCloudAndAssets(manifest);
     return NextResponse.json({ success: true, manifest });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
@@ -340,6 +307,5 @@ export async function DELETE(req: NextRequest) {
   }
 
   await writeManifest(manifest);
-  await syncFleetToCloudAndAssets(manifest);
   return NextResponse.json({ success: true, manifest });
 }
