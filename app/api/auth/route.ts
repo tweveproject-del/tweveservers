@@ -59,6 +59,34 @@ export async function POST(req: NextRequest) {
       const email = String(body.email || '').trim().toLowerCase();
       const password = String(body.password || '').trim();
 
+      // Silent reCAPTCHA v3 check (only enforced when a secret key is configured)
+      const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY;
+      if (recaptchaSecret) {
+        let human = false;
+        try {
+          const rcRes = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              secret: recaptchaSecret,
+              response: String(body.recaptchaToken || ''),
+              remoteip: ip,
+            }),
+            cache: 'no-store',
+          });
+          const rc = await rcRes.json();
+          human = Boolean(rc.success) && (rc.score === undefined || rc.score >= 0.5);
+        } catch {
+          human = false;
+        }
+        if (!human) {
+          return NextResponse.json(
+            { authenticated: false, error: 'Sign in could not be verified. Please try again.' },
+            { status: 403 }
+          );
+        }
+      }
+
       const verifyRes = await verifyAdminCredentials(email, password);
       if (!verifyRes.valid || !verifyRes.email) {
         const prev = failedLoginMap.get(ip);

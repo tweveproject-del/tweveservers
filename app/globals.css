@@ -2544,3 +2544,6 @@ input:user-invalid {
   .fleet-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fleet-kpi-grid > :last-child { grid-column: 1 / -1; }
 }
+
+/* Invisible reCAPTCHA: hide the floating badge */
+.grecaptcha-badge { visibility: hidden !important; }

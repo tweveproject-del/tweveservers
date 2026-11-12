@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { VpnServerItem, VpnProtocolType } from './lib/types';
+import { getRecaptchaToken, preloadRecaptcha } from './lib/recaptcha';
 
 type ProtocolCategory = 'all' | 'dns' | 'v2ray' | 'ssh' | 'udp';
 
@@ -314,6 +315,7 @@ export default function TweveServerFleetAdmin() {
   }, []);
 
   useEffect(() => {
+    preloadRecaptcha();
     let interval: ReturnType<typeof setInterval> | null = null;
     (async () => {
       try {
@@ -355,6 +357,7 @@ export default function TweveServerFleetAdmin() {
     }
     setLoginLoading(true);
     try {
+      const recaptchaToken = await getRecaptchaToken('login');
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -362,6 +365,7 @@ export default function TweveServerFleetAdmin() {
           action: 'login',
           email: trimmedEmail,
           password: trimmedPassword,
+          recaptchaToken,
         }),
       });
       const data = await res.json();
@@ -882,7 +886,7 @@ export default function TweveServerFleetAdmin() {
                 autoComplete="username"
                 value={loginEmailInput}
                 onChange={(e) => setLoginEmailInput(e.target.value)}
-                placeholder="tweveproject@gmail.com"
+                placeholder="Email address"
               />
             </div>
 
