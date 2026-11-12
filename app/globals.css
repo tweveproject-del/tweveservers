@@ -2502,7 +2502,9 @@ select option {
 }
 
 @media (pointer: coarse) {
-  :root { --target-size: 44px; }
+  :root {
+    --target-size: 44px;
+  }
 }
 
 :where(button, select, textarea, input:not([type="checkbox"], [type="radio"])) {
@@ -2515,8 +2517,15 @@ select option {
   outline-offset: 2px;
 }
 
-body { overflow-wrap: anywhere; }
-h1, h2, h3 { text-wrap: balance; }
+body {
+  overflow-wrap: anywhere;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
 
 input:user-invalid {
   border-color: #fb7185 !important;
@@ -2528,7 +2537,10 @@ input:user-invalid {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
@@ -2542,7 +2554,9 @@ input:user-invalid {
 }
 
 @media (pointer: coarse) {
-  :root { --target-size: 44px; }
+  :root {
+    --target-size: 44px;
+  }
 }
 
 body {
@@ -2556,7 +2570,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size-adjust: cap-height from-font;
   text-wrap: balance;
@@ -2574,7 +2591,9 @@ h2 {
   font-weight: 800;
 }
 
-p, li, blockquote {
+p,
+li,
+blockquote {
   text-wrap: pretty;
   max-width: 68ch;
   line-height: 1.55;
@@ -2599,7 +2618,10 @@ pre,
   body {
     line-height: 1.55;
   }
-  code, pre, .font-mono {
+
+  code,
+  pre,
+  .font-mono {
     font-size: 0.92em;
     line-height: 1.5;
   }
@@ -2625,20 +2647,34 @@ input:user-invalid {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
 }
 
 /* Three KPI cards: Connected, Active Nodes, Traffic */
-.fleet-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 1023px) {
-  .fleet-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fleet-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+
+@media (max-width: 1023px) {
+  .fleet-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 479px) {
-  .fleet-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fleet-kpi-grid > :last-child { grid-column: 1 / -1; }
+  .fleet-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fleet-kpi-grid> :last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Invisible reCAPTCHA: completely hide the floating badge, iframe & text */
@@ -2655,4 +2691,93 @@ iframe[src*="recaptcha/api2/anchor"],
   bottom: -9999px !important;
   right: -9999px !important;
   display: none !important;
+}
+
+/* ==========================================================================
+   Slide Menu Drawer & Payment Profit Hub Styles
+   ========================================================================== */
+.slide-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-menu-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.slide-menu-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 86vw;
+  background: linear-gradient(180deg, #090f1d 0%, #060a14 100%);
+  border-right: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: 16px 0 45px rgba(0, 0, 0, 0.85);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-y: auto;
+}
+
+.slide-menu-drawer.open {
+  transform: translateX(0);
+}
+
+.slide-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: transparent;
+  text-align: left;
+  border: 1px solid transparent;
+}
+
+.slide-menu-item:hover {
+  background: rgba(56, 189, 248, 0.1);
+  color: #f1f5f9;
+  border-color: rgba(56, 189, 248, 0.2);
+}
+
+.slide-menu-item.active {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(6, 182, 212, 0.18) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15);
+}
+
+.profit-kpi-card {
+  padding: 1rem 1.15rem;
+  border-radius: 0.95rem;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.85) 0%, rgba(2, 6, 23, 0.92) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  transition: all 0.2s ease;
+}
+
+.profit-kpi-card:hover {
+  border-color: rgba(16, 185, 129, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }

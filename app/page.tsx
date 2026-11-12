@@ -27,6 +27,17 @@ import {
   Database,
   LogOut,
   X,
+  Menu,
+  DollarSign,
+  Wallet,
+  CreditCard,
+  TrendingUp,
+  Filter,
+  Check,
+  ExternalLink,
+  Clock,
+  Phone,
+  ChevronRight,
 } from 'lucide-react';
 import { VpnServerItem, VpnProtocolType } from './lib/types';
 import { getRecaptchaToken, preloadRecaptcha } from './lib/recaptcha';
@@ -239,8 +250,8 @@ export default function TweveServerFleetAdmin() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginLockedUntil, setLoginLockedUntil] = useState<number>(0);
 
-  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'broadcast')
-  const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'broadcast'>('all');
+  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast')
+  const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'payments' | 'broadcast'>('all');
   const [protoCategory, setProtoCategory] = useState<ProtocolCategory>('all');
   const [fleetSearch, setFleetSearch] = useState('');
 
@@ -342,6 +353,15 @@ export default function TweveServerFleetAdmin() {
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
   const [savingGateway, setSavingGateway] = useState(false);
+
+  // Slide Menu & Navigation Drawer State
+  const [isSlideMenuOpen, setIsSlideMenuOpen] = useState(false);
+
+  // Payments & Profit Filter / Search State
+  const [paymentFilterStatus, setPaymentFilterStatus] = useState<'ALL' | 'COMPLETED' | 'PENDING' | 'FAILED'>('ALL');
+  const [paymentFilterPlan, setPaymentFilterPlan] = useState<'ALL' | '7d' | '30d'>('ALL');
+  const [paymentSearchQuery, setPaymentSearchQuery] = useState('');
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
 
   // Public User Store View State ('store' | 'admin')
   const [publicMode, setPublicMode] = useState<'store' | 'admin'>('admin');
@@ -585,6 +605,103 @@ export default function TweveServerFleetAdmin() {
       setSavingGateway(false);
     }
   };
+
+  // Close slide menu on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isSlideMenuOpen) {
+        setIsSlideMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSlideMenuOpen]);
+
+  // Financial & Profit Calculations
+  const completedOrders = paymentOrders.filter(
+    (o) => o.status === 'COMPLETED' || (o.subscriptionKey && o.status !== 'FAILED')
+  );
+  const totalProfitTzs = completedOrders.reduce((sum, o) => sum + (Number(o.amountTzs) || 0), 0);
+  const pendingOrders = paymentOrders.filter((o) => o.status === 'PENDING');
+  const failedOrders = paymentOrders.filter((o) => o.status === 'FAILED');
+
+  const orders7d = completedOrders.filter((o) => o.durationDays === 7 || o.planId === '7d');
+  const count7d = orders7d.length;
+  const profit7d = orders7d.reduce((sum, o) => sum + (Number(o.amountTzs) || 0), 0);
+
+  const orders30d = completedOrders.filter((o) => o.durationDays === 30 || o.planId === '30d');
+  const count30d = orders30d.length;
+  const profit30d = orders30d.reduce((sum, o) => sum + (Number(o.amountTzs) || 0), 0);
+
+  const uniquePayingPhones = new Set(completedOrders.map((o) => o.buyerPhone).filter(Boolean)).size;
+
+  // Tanzanian Mobile Money Operator detector
+  const getOperatorBadge = (phone?: string) => {
+    if (!phone) return { name: 'Mobile Money', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' };
+    const digits = phone.replace(/\D/g, '');
+    const local = digits.startsWith('255') ? digits.slice(3) : digits.startsWith('0') ? digits.slice(1) : digits;
+    if (local.startsWith('74') || local.startsWith('75') || local.startsWith('76')) {
+      return { name: 'M-Pesa (Vodacom)', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.18)' };
+    }
+    if (local.startsWith('71') || local.startsWith('65') || local.startsWith('67')) {
+      return { name: 'Tigo Pesa', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.18)' };
+    }
+    if (local.startsWith('78') || local.startsWith('68') || local.startsWith('69')) {
+      return { name: 'Airtel Money', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.18)' };
+    }
+    if (local.startsWith('62')) {
+      return { name: 'HaloPesa', color: '#f97316', bg: 'rgba(249, 115, 22, 0.18)' };
+    }
+    return { name: 'TZ Mobile', color: '#10b981', bg: 'rgba(16, 185, 129, 0.18)' };
+  };
+
+  const handleVerifyOrder = async (orderId: string) => {
+    setVerifyingOrderId(orderId);
+    try {
+      const res = await fetch(`/api/payments?orderId=${encodeURIComponent(orderId)}`);
+      const data = await res.json();
+      if (data.order) {
+        setPaymentOrders((prev) =>
+          prev.map((o) => (o.orderId === orderId ? { ...o, ...data.order } : o))
+        );
+        notify('success', `Order ${orderId} reconciled: ${data.order.status}`);
+      } else {
+        notify('error', data.error || 'Failed to reconcile order');
+      }
+    } catch {
+      notify('error', 'Network error verifying payment status');
+    } finally {
+      setVerifyingOrderId(null);
+    }
+  };
+
+  // Filtered orders list for payments tab
+  const filteredPaymentOrders = paymentOrders.filter((ord: any) => {
+    if (paymentFilterStatus !== 'ALL') {
+      if (paymentFilterStatus === 'COMPLETED') {
+        if (ord.status !== 'COMPLETED' && !(ord.subscriptionKey && ord.status !== 'FAILED')) return false;
+      } else if (ord.status !== paymentFilterStatus) {
+        return false;
+      }
+    }
+    if (paymentFilterPlan !== 'ALL') {
+      const is30 = ord.durationDays === 30 || ord.planId === '30d';
+      if (paymentFilterPlan === '30d' && !is30) return false;
+      if (paymentFilterPlan === '7d' && is30) return false;
+    }
+    if (paymentSearchQuery.trim()) {
+      const q = paymentSearchQuery.toLowerCase().trim();
+      const phone = (ord.buyerPhone || '').toLowerCase();
+      const name = (ord.serverName || '').toLowerCase();
+      const ref = (ord.pressoReference || '').toLowerCase();
+      const ordId = (ord.orderId || '').toLowerCase();
+      const key = (ord.subscriptionKey || ord.accessKey || '').toLowerCase();
+      if (!phone.includes(q) && !name.includes(q) && !ref.includes(q) && !ordId.includes(q) && !key.includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   // Live 1-second countdown ticker & automatic expiration sync trigger
   useEffect(() => {
@@ -1657,6 +1774,311 @@ export default function TweveServerFleetAdmin() {
 
   return (
     <div style={{ minHeight: '100dvh', backgroundColor: '#020617', color: '#f8fafc' }}>
+      {/* Slide Menu Backdrop */}
+      <div
+        className={`slide-menu-backdrop ${isSlideMenuOpen ? 'open' : ''}`}
+        onClick={() => setIsSlideMenuOpen(false)}
+      />
+
+      {/* Slide-in Navigation Drawer */}
+      <aside className={`slide-menu-drawer ${isSlideMenuOpen ? 'open' : ''}`}>
+        {/* Drawer Header */}
+        <div
+          style={{
+            padding: '1.15rem 1.1rem',
+            borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'rgba(3, 7, 18, 0.65)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <div
+              style={{
+                width: '2.25rem',
+                height: '2.25rem',
+                borderRadius: '0.65rem',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.25) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#34d399',
+              }}
+            >
+              <Flame style={{ width: '1.25rem', height: '1.25rem' }} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                TWEVE FLEET
+              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.1rem' }}>
+                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: '#10b981', display: 'inline-block' }} />
+                <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Admin Console</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsSlideMenuOpen(false)}
+            style={{
+              padding: '0.4rem',
+              borderRadius: '0.5rem',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              background: 'rgba(255, 255, 255, 0.05)',
+            }}
+            title="Close menu"
+          >
+            <X style={{ width: '1.1rem', height: '1.1rem' }} />
+          </button>
+        </div>
+
+        {/* Live Profits Card inside Drawer */}
+        <div style={{ padding: '0.95rem 1rem' }}>
+          <div
+            onClick={() => {
+              setMobileViewTab('payments');
+              setIsSlideMenuOpen(false);
+            }}
+            style={{
+              padding: '0.85rem 1rem',
+              borderRadius: '0.85rem',
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(6, 182, 212, 0.12) 100%)',
+              border: '1px solid rgba(16, 185, 129, 0.45)',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Total Net Profits
+              </span>
+              <DollarSign style={{ width: '0.95rem', height: '0.95rem', color: '#34d399' }} />
+            </div>
+            <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+              <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
+                {totalProfitTzs.toLocaleString()}
+              </span>
+              <span style={{ fontSize: '0.72rem', color: '#6ee7b7', fontWeight: 700 }}>TZS</span>
+            </div>
+            <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+              {completedOrders.length} completed transactions · Tap to view
+            </div>
+          </div>
+        </div>
+
+        {/* Slide Menu Navigation Items */}
+        <div style={{ padding: '0 0.85rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
+          <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Navigation & Options
+          </div>
+
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'deploy' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('deploy');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <PlusCircle style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} />
+              <div>
+                <div>{editingServerId ? 'Edit VPN Node' : 'Deploy / Add Server'}</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  15 Protocols, Credentials, Expiration
+                </div>
+              </div>
+            </div>
+            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'fleet' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('fleet');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Server style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} />
+              <div>
+                <div>Server Fleet Nodes</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Manage, Lock, User counts, MB/GB used
+                </div>
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                padding: '0.1rem 0.45rem',
+                borderRadius: '0.35rem',
+                backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                color: '#34d399',
+              }}
+            >
+              {servers.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'payments' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('payments');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <DollarSign style={{ width: '1.05rem', height: '1.05rem', color: '#fcd34d' }} />
+              <div>
+                <div>Payments Done & Profits</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Revenue accounting, orders, access keys
+                </div>
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                padding: '0.1rem 0.45rem',
+                borderRadius: '0.35rem',
+                backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                color: '#fcd34d',
+              }}
+            >
+              {completedOrders.length} Paid
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'broadcast' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('broadcast');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Megaphone style={{ width: '1.05rem', height: '1.05rem', color: '#ec4899' }} />
+              <div>
+                <div>Broadcast Announcement</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Instant popup alert to all client apps
+                </div>
+              </div>
+            </div>
+            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'all' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('all');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Activity style={{ width: '1.05rem', height: '1.05rem', color: '#a78bfa' }} />
+              <div>
+                <div>Split All Workspace</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Deploy + Fleet multi-column view
+                </div>
+              </div>
+            </div>
+            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
+          <div style={{ padding: '0.75rem 0.5rem 0.25rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            External & Actions
+          </div>
+
+          <button
+            type="button"
+            className="slide-menu-item"
+            onClick={() => {
+              setPublicMode('store');
+              fetchStoreCatalog();
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Zap style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} />
+              <div>
+                <div>User Store Catalog</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Client-side checkout simulator
+                </div>
+              </div>
+            </div>
+            <ExternalLink style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
+          <button
+            type="button"
+            className="slide-menu-item"
+            onClick={() => {
+              fetchServers();
+              fetchAnalytics();
+              fetchPaymentsAdmin();
+              notify('success', 'Synchronized live servers, bandwidth & payment orders!');
+              setIsSlideMenuOpen(false);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <RefreshCw style={{ width: '1.05rem', height: '1.05rem', color: '#22d3ee' }} />
+              <div>
+                <div>Sync & Refresh All</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Reload servers, metrics & payments
+                </div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        {/* Drawer Footer with Admin Email & Logout */}
+        <div
+          style={{
+            padding: '1rem 1.15rem',
+            borderTop: '1px solid rgba(56, 189, 248, 0.16)',
+            background: 'rgba(2, 6, 23, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Signed in as</div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {adminEmail}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsSlideMenuOpen(false);
+              handleLogout();
+            }}
+            className="btn-fleet-secondary"
+            style={{ padding: '0.4rem 0.65rem', color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+          >
+            <LogOut style={{ width: '0.85rem', height: '0.85rem' }} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
       {/* Sticky Top Header */}
       <header
         style={{
@@ -1669,11 +2091,30 @@ export default function TweveServerFleetAdmin() {
         }}
       >
         <div className="fleet-header-inner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
+            {/* Hamburger Slide Menu Trigger Button */}
+            <button
+              type="button"
+              onClick={() => setIsSlideMenuOpen(true)}
+              className="btn-fleet-secondary"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.45rem 0.75rem',
+                borderColor: 'rgba(56, 189, 248, 0.35)',
+                background: 'rgba(15, 23, 42, 0.8)',
+              }}
+              title="Open Navigation Menu"
+            >
+              <Menu style={{ width: '1.15rem', height: '1.15rem', color: '#22d3ee' }} />
+              <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>Menu</span>
+            </button>
+
             <div
               style={{
-                width: '2.5rem',
-                height: '2.5rem',
+                width: '2.4rem',
+                height: '2.4rem',
                 borderRadius: '0.75rem',
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.22))',
                 border: '1px solid rgba(16, 185, 129, 0.45)',
@@ -1684,7 +2125,7 @@ export default function TweveServerFleetAdmin() {
                 boxShadow: '0 0 20px rgba(16, 185, 129, 0.22)',
               }}
             >
-              <Flame style={{ width: '1.35rem', height: '1.35rem', color: '#34d399' }} />
+              <Flame style={{ width: '1.3rem', height: '1.3rem', color: '#34d399' }} />
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1699,6 +2140,30 @@ export default function TweveServerFleetAdmin() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+            {/* Quick Profit Pill in Header */}
+            <div
+              onClick={() => setMobileViewTab('payments')}
+              style={{
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.35rem 0.65rem',
+                borderRadius: '0.65rem',
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.12) 100%)',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                fontSize: '0.72rem',
+                fontFamily: 'monospace',
+              }}
+              title="Click to view full Payments & Profits ledger"
+            >
+              <DollarSign style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
+              <span style={{ color: '#94a3b8' }}>Profits:</span>
+              <strong style={{ color: '#34d399', fontWeight: 800 }}>
+                {totalProfitTzs.toLocaleString()} TZS
+              </strong>
+            </div>
+
             <button
               type="button"
               onClick={() => {
@@ -1829,6 +2294,7 @@ export default function TweveServerFleetAdmin() {
             { id: 'all', label: 'Split All' },
             { id: 'deploy', label: editingServerId ? 'Edit Node' : '+ Deploy' },
             { id: 'fleet', label: `Servers (${servers.length})` },
+            { id: 'payments', label: `💰 Profits (${totalProfitTzs > 0 ? (totalProfitTzs >= 1000 ? (totalProfitTzs / 1000).toFixed(0) + 'k' : totalProfitTzs) : '0'})` },
             { id: 'broadcast', label: 'Broadcast' },
           ].map((tab) => {
             const active = mobileViewTab === tab.id;
@@ -3638,15 +4104,26 @@ export default function TweveServerFleetAdmin() {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={fetchPaymentsAdmin}
-                  className="btn-fleet-secondary"
-                  style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
-                >
-                  <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
-                  <span>Sync Payments</span>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setMobileViewTab('payments')}
+                    className="btn-fleet-primary"
+                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
+                  >
+                    <DollarSign style={{ width: '0.78rem', height: '0.78rem' }} />
+                    <span>View All & Count Profits</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={fetchPaymentsAdmin}
+                    className="btn-fleet-secondary"
+                    style={{ padding: '0.38rem 0.7rem', fontSize: '0.7rem' }}
+                  >
+                    <RefreshCw style={{ width: '0.78rem', height: '0.78rem' }} />
+                    <span>Sync Payments</span>
+                  </button>
+                </div>
               </div>
 
               <div className="fleet-form-grid-3" style={{ marginTop: '0.85rem', alignItems: 'end' }}>
@@ -3758,6 +4235,580 @@ export default function TweveServerFleetAdmin() {
             </section>
           </div>
         </div>
+
+        {/* DEDICATED PAYMENTS & PROFITS COMMAND CENTER VIEW */}
+        {mobileViewTab === 'payments' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+            <section className="fleet-card fleet-section-pad">
+              {/* Header with Title & Quick Sync */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.85rem',
+                  paddingBottom: '1rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      width: '2.5rem',
+                      height: '2.5rem',
+                      borderRadius: '0.75rem',
+                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.2) 100%)',
+                      border: '1px solid rgba(16, 185, 129, 0.5)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#34d399',
+                      boxShadow: '0 0 20px rgba(16, 185, 129, 0.25)',
+                    }}
+                  >
+                    <DollarSign style={{ width: '1.4rem', height: '1.4rem' }} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                      Payments Done & Profit Command Center
+                    </h2>
+                    <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      Authoritative real-time Mobile Money transactions, revenue accounting & customer access keys
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={fetchPaymentsAdmin}
+                    className="btn-fleet-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem' }}
+                  >
+                    <RefreshCw style={{ width: '0.85rem', height: '0.85rem' }} />
+                    <span>Sync Payments</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPublicMode('store');
+                      fetchStoreCatalog();
+                    }}
+                    className="btn-fleet-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem' }}
+                  >
+                    <Zap style={{ width: '0.85rem', height: '0.85rem' }} />
+                    <span>User Store Catalog</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Financial Profit KPI Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '0.85rem',
+                  marginTop: '1.15rem',
+                }}
+              >
+                {/* Total Profits Card */}
+                <div className="profit-kpi-card" style={{ borderColor: 'rgba(16, 185, 129, 0.45)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Total Net Profits
+                    </span>
+                    <TrendingUp style={{ width: '1.1rem', height: '1.1rem', color: '#34d399' }} />
+                  </div>
+                  <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '1.65rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
+                      {totalProfitTzs.toLocaleString()}
+                    </span>
+                    <span style={{ fontSize: '0.85rem', color: '#6ee7b7', fontWeight: 700 }}>TZS</span>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    From <strong style={{ color: '#ffffff' }}>{completedOrders.length}</strong> completed transactions
+                  </div>
+                </div>
+
+                {/* 7 Days Packages Card */}
+                <div className="profit-kpi-card">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      7 Days Passes
+                    </span>
+                    <Clock style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} />
+                  </div>
+                  <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#38bdf8', fontFamily: 'monospace' }}>
+                      {profit7d.toLocaleString()}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>TZS</span>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    <strong style={{ color: '#e2e8f0' }}>{count7d}</strong> packages sold (@ 2,700 TZS default)
+                  </div>
+                </div>
+
+                {/* 30 Days VIP Passes Card */}
+                <div className="profit-kpi-card">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      30 Days VIP Passes
+                    </span>
+                    <KeyRound style={{ width: '1.05rem', height: '1.05rem', color: '#fbbf24' }} />
+                  </div>
+                  <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
+                      {profit30d.toLocaleString()}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>TZS</span>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    <strong style={{ color: '#e2e8f0' }}>{count30d}</strong> monthly passes sold (@ 8,500 TZS default)
+                  </div>
+                </div>
+
+                {/* Customers & Conversion Card */}
+                <div className="profit-kpi-card">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Paying Customers
+                    </span>
+                    <Users style={{ width: '1.05rem', height: '1.05rem', color: '#a78bfa' }} />
+                  </div>
+                  <div style={{ marginTop: '0.2rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c4b5fd', fontFamily: 'monospace' }}>
+                      {uniquePayingPhones}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Unique Users</span>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                    {pendingOrders.length > 0 ? (
+                      <span style={{ color: '#fcd34d' }}>{pendingOrders.length} pending USSD prompt</span>
+                    ) : (
+                      <span style={{ color: '#34d399' }}>Zero pending backlog</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Search and Filtering Bar */}
+              <div
+                style={{
+                  marginTop: '1.25rem',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  background: 'rgba(2, 6, 23, 0.65)',
+                  padding: '0.75rem 0.95rem',
+                  borderRadius: '0.85rem',
+                  border: '1px solid rgba(56, 189, 248, 0.16)',
+                }}
+              >
+                {/* Search Input */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '220px' }}>
+                  <Search style={{ width: '0.95rem', height: '0.95rem', color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    value={paymentSearchQuery}
+                    onChange={(e) => setPaymentSearchQuery(e.target.value)}
+                    placeholder="Search customer phone (07...), server, ref, or access key..."
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '0.35rem 0.5rem',
+                      fontSize: '0.8rem',
+                      color: '#ffffff',
+                      boxShadow: 'none',
+                    }}
+                  />
+                  {paymentSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentSearchQuery('')}
+                      style={{ color: '#94a3b8', cursor: 'pointer', padding: '0.2rem' }}
+                    >
+                      <X style={{ width: '0.85rem', height: '0.85rem' }} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Filter Pills */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  {(['ALL', 'COMPLETED', 'PENDING', 'FAILED'] as const).map((st) => {
+                    const active = paymentFilterStatus === st;
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setPaymentFilterStatus(st)}
+                        style={{
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: '0.55rem',
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          background: active
+                            ? st === 'COMPLETED'
+                              ? 'rgba(16, 185, 129, 0.3)'
+                              : st === 'PENDING'
+                                ? 'rgba(251, 191, 36, 0.3)'
+                                : st === 'FAILED'
+                                  ? 'rgba(244, 63, 94, 0.3)'
+                                  : 'rgba(56, 189, 248, 0.25)'
+                            : 'rgba(15, 23, 42, 0.6)',
+                          border: active
+                            ? `1px solid ${
+                                st === 'COMPLETED'
+                                  ? '#10b981'
+                                  : st === 'PENDING'
+                                    ? '#fbbf24'
+                                    : st === 'FAILED'
+                                      ? '#f43f5e'
+                                      : '#38bdf8'
+                              }`
+                            : '1px solid rgba(56, 189, 248, 0.12)',
+                          color: active ? '#ffffff' : '#94a3b8',
+                        }}
+                      >
+                        {st === 'ALL'
+                          ? `All (${paymentOrders.length})`
+                          : st === 'COMPLETED'
+                            ? `Completed (${completedOrders.length})`
+                            : st === 'PENDING'
+                              ? `Pending (${pendingOrders.length})`
+                              : `Failed (${failedOrders.length})`}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Plan Filter Pills */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  {(['ALL', '7d', '30d'] as const).map((pl) => {
+                    const active = paymentFilterPlan === pl;
+                    return (
+                      <button
+                        key={pl}
+                        type="button"
+                        onClick={() => setPaymentFilterPlan(pl)}
+                        style={{
+                          padding: '0.35rem 0.55rem',
+                          borderRadius: '0.55rem',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          background: active ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                          border: active ? '1px solid #10b981' : '1px solid rgba(56, 189, 248, 0.1)',
+                          color: active ? '#34d399' : '#64748b',
+                        }}
+                      >
+                        {pl === 'ALL' ? 'All Plans' : pl === '7d' ? '7 Days' : '30 Days'}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Payments Done Detailed Ledger */}
+              <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 0.25rem' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Payments Transactions Ledger ({filteredPaymentOrders.length})
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#64748b', fontFamily: 'monospace' }}>
+                    Showing {filteredPaymentOrders.length} of {paymentOrders.length} records
+                  </span>
+                </div>
+
+                {filteredPaymentOrders.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '2.5rem 1rem',
+                      textAlign: 'center',
+                      borderRadius: '0.85rem',
+                      backgroundColor: 'rgba(3, 7, 18, 0.7)',
+                      border: '1px dashed rgba(56, 189, 248, 0.25)',
+                    }}
+                  >
+                    <Wallet style={{ width: '2rem', height: '2rem', color: '#64748b', margin: '0 auto 0.75rem' }} />
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#e2e8f0' }}>No matching payments found</h4>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>
+                      {paymentSearchQuery || paymentFilterStatus !== 'ALL' || paymentFilterPlan !== 'ALL'
+                        ? 'Try clearing your search or filter pills above.'
+                        : 'When users purchase servers using the Android app or web store, payments and profit accounting will appear here automatically.'}
+                    </p>
+                  </div>
+                ) : (
+                  filteredPaymentOrders.map((ord: any) => {
+                    const op = getOperatorBadge(ord.buyerPhone);
+                    const isCompleted = ord.status === 'COMPLETED' || (ord.subscriptionKey && ord.status !== 'FAILED');
+                    const isPending = ord.status === 'PENDING';
+                    const dateFormatted = ord.createdAt
+                      ? new Date(ord.createdAt).toLocaleString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Just now';
+
+                    return (
+                      <div
+                        key={ord.orderId}
+                        style={{
+                          padding: '0.95rem 1.15rem',
+                          borderRadius: '0.85rem',
+                          backgroundColor: 'rgba(3, 7, 18, 0.85)',
+                          border: isCompleted
+                            ? '1px solid rgba(16, 185, 129, 0.35)'
+                            : isPending
+                              ? '1px solid rgba(251, 191, 36, 0.35)'
+                              : '1px solid rgba(244, 63, 94, 0.35)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.65rem',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {/* Top row: Phone + Operator badge + Amount + Status */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.65rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                padding: '0.2rem 0.55rem',
+                                borderRadius: '0.45rem',
+                                background: op.bg,
+                                color: op.color,
+                                fontSize: '0.68rem',
+                                fontWeight: 800,
+                              }}
+                            >
+                              <Phone style={{ width: '0.75rem', height: '0.75rem' }} />
+                              <span>{op.name}</span>
+                            </div>
+                            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff', fontFamily: 'monospace' }}>
+                              {ord.buyerPhone || 'Customer Phone'}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>•</span>
+                            <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{dateFormatted}</span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                            <span
+                              style={{
+                                fontSize: '1.15rem',
+                                fontWeight: 900,
+                                color: isCompleted ? '#34d399' : '#fcd34d',
+                                fontFamily: 'monospace',
+                              }}
+                            >
+                              +{Number(ord.amountTzs || 0).toLocaleString()} TZS
+                            </span>
+                            <span
+                              style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '0.45rem',
+                                fontWeight: 800,
+                                fontSize: '0.68rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                background: isCompleted
+                                  ? 'rgba(16, 185, 129, 0.2)'
+                                  : isPending
+                                    ? 'rgba(251, 191, 36, 0.2)'
+                                    : 'rgba(244, 63, 94, 0.2)',
+                                color: isCompleted ? '#34d399' : isPending ? '#fcd34d' : '#fb7185',
+                                border: `1px solid ${
+                                  isCompleted
+                                    ? 'rgba(16, 185, 129, 0.45)'
+                                    : isPending
+                                      ? 'rgba(251, 191, 36, 0.45)'
+                                      : 'rgba(244, 63, 94, 0.45)'
+                                }`,
+                              }}
+                            >
+                              {isCompleted && <Check style={{ width: '0.7rem', height: '0.7rem' }} />}
+                              {isPending && <Clock style={{ width: '0.7rem', height: '0.7rem' }} />}
+                              <span>{ord.status || 'PENDING'}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle row: Server Name + Package Duration + References */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.5rem',
+                            fontSize: '0.75rem',
+                            paddingTop: '0.45rem',
+                            borderTop: '1px solid rgba(56, 189, 248, 0.1)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <span style={{ color: '#38bdf8', fontWeight: 800 }}>🌐 {ord.serverName || 'VPN Server'}</span>
+                            <span style={{ color: '#64748b' }}>|</span>
+                            <span
+                              style={{
+                                padding: '0.1rem 0.45rem',
+                                borderRadius: '0.35rem',
+                                background: ord.durationDays === 30 ? 'rgba(251, 191, 36, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                                color: ord.durationDays === 30 ? '#fcd34d' : '#38bdf8',
+                                fontWeight: 700,
+                                fontSize: '0.68rem',
+                              }}
+                            >
+                              {ord.durationDays === 30 ? '30 Days Access (1 Month)' : '7 Days Access'}
+                            </span>
+                            <span style={{ color: '#64748b' }}>|</span>
+                            <span style={{ color: '#94a3b8', fontSize: '0.68rem', fontFamily: 'monospace' }}>
+                              Ref: <strong style={{ color: '#cbd5e1' }}>{ord.pressoReference || ord.orderId}</strong>
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                            <button
+                              type="button"
+                              disabled={verifyingOrderId === ord.orderId}
+                              onClick={() => handleVerifyOrder(ord.orderId)}
+                              className="btn-fleet-secondary"
+                              style={{ padding: '0.25rem 0.55rem', fontSize: '0.68rem' }}
+                              title="Reconcile live status directly with PressoPay gateway"
+                            >
+                              <RefreshCw
+                                style={{
+                                  width: '0.7rem',
+                                  height: '0.7rem',
+                                  animation: verifyingOrderId === ord.orderId ? 'spin 1s linear infinite' : 'none',
+                                }}
+                              />
+                              <span>{verifyingOrderId === ord.orderId ? 'Checking...' : 'Verify Gateway'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Bottom row: Issued Access Key (if completed) */}
+                        {(ord.subscriptionKey || ord.accessKey) && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '0.5rem',
+                              background: 'rgba(16, 185, 129, 0.08)',
+                              border: '1px solid rgba(16, 185, 129, 0.25)',
+                              padding: '0.45rem 0.75rem',
+                              borderRadius: '0.55rem',
+                              fontSize: '0.72rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <KeyRound style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
+                              <span style={{ color: '#94a3b8' }}>Issued VIP Access Key:</span>
+                              <code style={{ color: '#34d399', fontWeight: 900, fontFamily: 'monospace' }}>
+                                {ord.subscriptionKey || ord.accessKey}
+                              </code>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(ord.subscriptionKey || ord.accessKey);
+                                notify('success', 'Access key copied to clipboard!');
+                              }}
+                              className="btn-fleet-secondary"
+                              style={{ padding: '0.15rem 0.45rem', fontSize: '0.65rem' }}
+                            >
+                              <Copy style={{ width: '0.65rem', height: '0.65rem' }} />
+                              <span>Copy Key</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* PressoPay Gateway Settings Embedded in Payments Tab */}
+              <div
+                style={{
+                  marginTop: '1.5rem',
+                  paddingTop: '1.25rem',
+                  borderTop: '1px solid rgba(56, 189, 248, 0.18)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <div
+                      style={{
+                        padding: '0.4rem',
+                        borderRadius: '0.7rem',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                        color: '#34d399',
+                      }}
+                    >
+                      <KeyRound style={{ width: '1.05rem', height: '1.05rem' }} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
+                        PressoPay Gateway Pricing Defaults & Secrets
+                      </h3>
+                      <p style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                        Public API Key ({gatewayInfo?.apiKeyMasked || 'pk_...'}) & Secret Key stored securely in private Firebase DB
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="fleet-form-grid-3" style={{ marginTop: '0.85rem', alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Default 7 Days Price (TZS)
+                    </label>
+                    <input
+                      type="number"
+                      value={default7dInput}
+                      onChange={(e) => setDefault7dInput(e.target.value)}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Default 30 Days Price (TZS)
+                    </label>
+                    <input
+                      type="number"
+                      value={default30dInput}
+                      onChange={(e) => setDefault30dInput(e.target.value)}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={savingGateway}
+                    onClick={handleSaveGatewayDefaults}
+                    className="btn-fleet-primary"
+                    style={{ justifyContent: 'center' }}
+                  >
+                    <span>{savingGateway ? 'Saving...' : 'Save Default Prices'}</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
       </main>
     </div>
   );
