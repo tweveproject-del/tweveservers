@@ -201,6 +201,7 @@ export default function TweveServerFleetAdmin() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [loginLockedUntil, setLoginLockedUntil] = useState<number>(0);
 
   // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'broadcast')
   const [mobileViewTab, setMobileViewTab] = useState<'all' | 'deploy' | 'fleet' | 'broadcast'>('all');
@@ -337,17 +338,12 @@ export default function TweveServerFleetAdmin() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loginLockedUntil > Date.now()) {
+      return;
+    }
     setLoginError('');
     const trimmedEmail = loginEmailInput.trim().toLowerCase();
     const trimmedPassword = loginPasswordInput.trim();
-    if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      setLoginError('Please enter a valid admin email address.');
-      return;
-    }
-    if (!trimmedPassword) {
-      setLoginError('Please enter your password.');
-      return;
-    }
     setLoginLoading(true);
     try {
       const recaptchaToken = await getRecaptchaToken('login');
@@ -363,8 +359,12 @@ export default function TweveServerFleetAdmin() {
       });
       const data = await res.json();
       if (!res.ok || !data.authenticated) {
+        if (data.blockedUntil && Number(data.blockedUntil) > Date.now()) {
+          setLoginLockedUntil(Number(data.blockedUntil));
+        }
         setLoginError(data.error || 'Invalid email or password.');
       } else {
+        setLoginLockedUntil(0);
         setIsAuthenticated(true);
         setAdminEmail(data.email);
         setLoginEmailInput('');
@@ -891,12 +891,18 @@ export default function TweveServerFleetAdmin() {
 
             <button
               type="submit"
-              disabled={loginLoading}
+              disabled={loginLoading || loginLockedUntil > Date.now()}
               className="btn-fleet-primary"
               style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
             >
               <Shield style={{ width: '1rem', height: '1rem' }} />
-              <span>{loginLoading ? 'Signing in...' : 'Sign In to Fleet Console'}</span>
+              <span>
+                {loginLockedUntil > Date.now()
+                  ? 'Access Temporarily Blocked'
+                  : loginLoading
+                    ? 'Signing in...'
+                    : 'Sign In to Fleet Console'}
+              </span>
             </button>
           </form>
         </div>
