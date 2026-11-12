@@ -2533,3 +2533,14 @@ input:user-invalid {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Three KPI cards: Connected, Active Nodes, Traffic */
+.fleet-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1023px) {
+  .fleet-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 479px) {
+  .fleet-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fleet-kpi-grid > :last-child { grid-column: 1 / -1; }
+}

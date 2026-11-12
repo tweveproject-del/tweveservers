@@ -350,7 +350,7 @@ export default function TweveServerFleetAdmin() {
       return;
     }
     if (!trimmedPassword) {
-      setLoginError('Please enter your Firebase admin password.');
+      setLoginError('Please enter your password.');
       return;
     }
     setLoginLoading(true);
@@ -665,7 +665,7 @@ export default function TweveServerFleetAdmin() {
         setServers(data.manifest.servers);
         notify(
           'success',
-          `${editingServerId ? 'Updated' : 'Deployed'} "${name.trim()}" (${formProtocol.toUpperCase()}) to App & Firebase!`
+          `${editingServerId ? 'Updated' : 'Deployed'} "${name.trim()}" (${formProtocol.toUpperCase()}) to the app!`
         );
         setName('');
         setEditingServerId(null);
@@ -739,7 +739,7 @@ export default function TweveServerFleetAdmin() {
       });
       const data = await res.json();
       if (data.success) {
-        notify('success', 'Synced Fleet Announcement & Encrypted Manifest to App & Firebase!');
+        notify('success', 'Synced Fleet Announcement & Encrypted Manifest to the app!');
       }
     } catch {
       notify('error', 'Failed to save announcement');
@@ -806,7 +806,7 @@ export default function TweveServerFleetAdmin() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#94a3b8', fontSize: '0.9rem' }}>
           <Shield style={{ width: '1.35rem', height: '1.35rem', color: '#34d399' }} />
-          <span>Verifying Firebase Admin Session...</span>
+          <span>Checking session...</span>
         </div>
       </div>
     );
@@ -856,7 +856,7 @@ export default function TweveServerFleetAdmin() {
               TWEVE SERVER FLEET
             </h1>
             <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.3rem' }}>
-              Firebase Admin Authentication • Email & Password Required
+              Admin sign in
             </p>
           </div>
 
@@ -907,7 +907,7 @@ export default function TweveServerFleetAdmin() {
                   autoComplete="current-password"
                   value={loginPasswordInput}
                   onChange={(e) => setLoginPasswordInput(e.target.value)}
-                  placeholder="Enter Firebase admin password..."
+                  placeholder="Enter your password"
                   style={{ paddingRight: '2.75rem' }}
                 />
                 <button
@@ -956,27 +956,9 @@ export default function TweveServerFleetAdmin() {
               style={{ width: '100%', justifyContent: 'center', marginTop: '0.25rem' }}
             >
               <Shield style={{ width: '1rem', height: '1rem' }} />
-              <span>{loginLoading ? 'Verifying with Firebase...' : 'Sign In to Fleet Console'}</span>
+              <span>{loginLoading ? 'Signing in...' : 'Sign In to Fleet Console'}</span>
             </button>
           </form>
-
-          <div
-            style={{
-              marginTop: '1.35rem',
-              paddingTop: '1rem',
-              borderTop: '1px solid rgba(148, 163, 184, 0.12)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.45rem',
-              fontSize: '0.7rem',
-              color: '#64748b',
-              textAlign: 'center',
-            }}
-          >
-            <KeyRound style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
-            <span>Firebase RTDB + Firestore + Auth (`tunnel-7a4c7`)</span>
-          </div>
         </div>
       </div>
     );
@@ -1018,19 +1000,6 @@ export default function TweveServerFleetAdmin() {
                 <h1 style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
                   TWEVE SERVER FLEET
                 </h1>
-                <span
-                  style={{
-                    fontSize: '0.6rem',
-                    fontWeight: 700,
-                    padding: '0.12rem 0.5rem',
-                    borderRadius: '9999px',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    color: '#34d399',
-                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                  }}
-                >
-                  FIREBASE + APK SYNC
-                </span>
               </div>
               <p style={{ fontSize: '0.7rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Admin: <strong style={{ color: '#38bdf8' }}>{adminEmail}</strong>
@@ -1049,15 +1018,7 @@ export default function TweveServerFleetAdmin() {
               }}
             >
               <Database style={{ width: '0.85rem', height: '0.85rem', color: '#a78bfa' }} />
-              <span>Firebase Admins ({adminsList.length})</span>
-            </button>
-            <button type="button" onClick={handleSaveAnnouncement} className="btn-fleet-secondary">
-              <RefreshCw style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
-              <span>Sync Cloud</span>
-            </button>
-            <button type="button" onClick={copyApkEndpoint} className="btn-fleet-secondary">
-              <Copy style={{ width: '0.85rem', height: '0.85rem', color: '#38bdf8' }} />
-              <span>APK URL</span>
+              <span>Admins ({adminsList.length})</span>
             </button>
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
               <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
@@ -1264,21 +1225,6 @@ export default function TweveServerFleetAdmin() {
           <div className="kpi-stat-box">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Protocols
-              </span>
-              <Zap style={{ width: '0.95rem', height: '0.95rem', color: '#c084fc' }} />
-            </div>
-            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
-              <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c084fc', fontFamily: 'monospace' }}>
-                {PROTOCOL_OPTIONS.length}
-              </span>
-              <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Modes</span>
-            </div>
-          </div>
-
-          <div className="kpi-stat-box">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Traffic
               </span>
               <Activity style={{ width: '0.95rem', height: '0.95rem', color: '#fbbf24' }} />
@@ -1399,7 +1345,7 @@ export default function TweveServerFleetAdmin() {
                       {editingServerId ? 'Edit Existing Fleet Server' : 'Deploy Server to Tweve Tunnel'}
                     </h2>
                     <p style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
-                      Pushed configurations encrypt with AES-256-GCM and sync to APK & Firebase.
+                      Pushed configurations encrypt with AES-256-GCM and sync to the app.
                     </p>
                   </div>
                 </div>
@@ -2073,7 +2019,7 @@ export default function TweveServerFleetAdmin() {
                         Active Fleet ({servers.length})
                       </h3>
                       <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                        Live servers synced to APK & Firebase
+                        Live servers synced to the app
                       </p>
                     </div>
                   </div>
