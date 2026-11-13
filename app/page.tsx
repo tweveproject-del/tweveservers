@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Server,
   Shield,
+  Rocket,
   PlusCircle,
   Trash2,
   RefreshCw,
@@ -250,8 +251,8 @@ export default function TweveServerFleetAdmin() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginLockedUntil, setLoginLockedUntil] = useState<number>(0);
 
-  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast' | 'telemetry' | 'security')
-  const [mobileViewTab, setMobileViewTab] = useState<'fleet' | 'deploy' | 'payments' | 'broadcast' | 'telemetry' | 'security'>('fleet');
+  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast' | 'telemetry' | 'security' | 'version')
+  const [mobileViewTab, setMobileViewTab] = useState<'fleet' | 'deploy' | 'payments' | 'broadcast' | 'telemetry' | 'security' | 'version'>('fleet');
 
   // Security & Admin Activity Audit Logs State
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
@@ -1695,6 +1696,27 @@ export default function TweveServerFleetAdmin() {
 
           <button
             type="button"
+            className={`slide-menu-item ${mobileViewTab === 'version' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('version');
+              setIsSlideMenuOpen(false);
+              fetchAppVersion();
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Rocket style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} />
+              <div>
+                <div>App Version Control</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Push APK updates &amp; force update dialog
+                </div>
+              </div>
+            </div>
+            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
+          <button
+            type="button"
             className={`slide-menu-item ${mobileViewTab === 'broadcast' ? 'active' : ''}`}
             onClick={() => {
               setMobileViewTab('broadcast');
@@ -2020,6 +2042,7 @@ export default function TweveServerFleetAdmin() {
             { id: 'deploy', label: editingServerId ? '✏️ Edit Node' : '➕ Deploy' },
             { id: 'payments', label: `💰 Profits (${totalProfitTzs > 0 ? (totalProfitTzs >= 1000 ? (totalProfitTzs / 1000).toFixed(0) + 'k' : totalProfitTzs) : '0'})` },
             { id: 'broadcast', label: '📢 Notice' },
+            { id: 'version', label: `📲 v${appVersionConfig.latest_version_name || '6.2.4'}` },
             { id: 'telemetry', label: '📊 Telemetry' },
             { id: 'security', label: `🛡️ Security${securityStats.criticalCount + securityStats.activeBansCount > 0 ? ` (${securityStats.criticalCount + securityStats.activeBansCount})` : ''}` },
           ].map((tab) => {
@@ -4162,8 +4185,8 @@ export default function TweveServerFleetAdmin() {
           </div>
         )}
 
-        {/* DEDICATED APP BROADCAST COMMAND CENTER */}
-        {mobileViewTab === 'broadcast' && (
+        {/* DEDICATED APP VERSION CONTROL PAGE */}
+        {mobileViewTab === 'version' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
             {/* App Version Control & Update Dialog Push */}
             <section className="fleet-card fleet-section-pad">
@@ -4309,7 +4332,12 @@ export default function TweveServerFleetAdmin() {
                 )}
               </form>
             </section>
+          </div>
+        )}
 
+        {/* DEDICATED APP BROADCAST COMMAND CENTER */}
+        {mobileViewTab === 'broadcast' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
             {/* Live Active Announcement Status Card */}
             <section className="fleet-card fleet-section-pad">
               <div
