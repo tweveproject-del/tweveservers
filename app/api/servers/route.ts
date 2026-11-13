@@ -345,7 +345,7 @@ export async function POST(req: NextRequest) {
       country: (body.country || 'TZ').toUpperCase(),
       tier: body.tier || 'FREE',
       protocol: body.protocol || 'slowdns',
-      host: body.host || body.v2rayAddress || body.slipstreamDomain || body.dnsttNameserver || '',
+      host: body.host || body.proxyHost || body.v2rayAddress || body.slipstreamDomain || body.dnsttNameserver || '',
       portDirect: Number(body.portDirect || 22),
       portHTTP: Number(body.portHTTP || 80),
       portSSL: Number(body.portSSL || 443),

@@ -154,7 +154,7 @@ export function convertToApkServerStructure(
     const lockedOut = isPaidServer && !isUnlockedBySub;
     const effectiveHost = lockedOut
       ? ''
-      : s.host || s.v2rayAddress || s.slipstreamDomain || s.dnsttNameserver || '';
+      : s.host || s.proxyHost || s.v2rayAddress || s.slipstreamDomain || s.dnsttNameserver || '';
     const effectiveV2rayAddress = lockedOut ? '' : s.v2rayAddress || s.host || '';
     const effectiveV2rayPort = Number(s.v2rayPort || s.portSSL || 443);
     const effectiveV2rayNetwork =
@@ -189,6 +189,10 @@ export function convertToApkServerStructure(
       password: lockedOut ? '' : s.password || '',
       payload: effectivePayload,
       sni: lockedOut ? '' : s.sni || s.v2raySni || s.hysteriaSni || '',
+      proxyHost: lockedOut
+        ? ''
+        : s.proxyHost || ([4, 5, 7].includes(connectionType) ? effectiveHost : ''),
+      proxyPort: Number(s.proxyPort || s.portHTTP || s.portSSL || 8080),
       cdnDomain: lockedOut ? '' : s.cdnDomain || s.v2rayWsHost || s.v2raySni || '',
       cdnPayload: lockedOut ? '' : s.cdnPayload || effectivePayload,
       // SlowDNS / DNSTT fields

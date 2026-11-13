@@ -1295,9 +1295,6 @@ export default function TweveServerFleetAdmin() {
     'ssh_payload',
     'ssh_ssl',
     'ssh_ssl_payload',
-    'http_proxy',
-    'http_proxy_payload',
-    'http_proxy_ssl_payload',
     'stealth_link',
     'stealth_turbo',
   ].includes(formProtocol);
@@ -2610,25 +2607,25 @@ export default function TweveServerFleetAdmin() {
                     <>
                       <div>
                         <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
-                          HTTP Proxy Host
+                          Proxy Host *
                         </label>
                         <input
                           type="text"
                           value={proxyHost}
                           onChange={(e) => setProxyHost(e.target.value)}
-                          placeholder="Defaults to Server Host"
+                          placeholder="e.g. 104.16.x.x or proxy.example.com"
                           style={{ fontFamily: 'monospace' }}
                         />
                       </div>
                       <div>
                         <label style={{ fontSize: '0.71rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
-                          HTTP Proxy Port
+                          Proxy Port *
                         </label>
                         <input
                           type="number"
                           value={proxyPort}
                           onChange={(e) => setProxyPort(e.target.value)}
-                          placeholder="8080 or 80"
+                          placeholder="8080 or 80 or 443"
                           style={{ fontFamily: 'monospace' }}
                         />
                       </div>
