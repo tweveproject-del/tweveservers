@@ -98,11 +98,30 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const [gateway, orders, subscriptions] = await Promise.all([
+    const [gateway, rawOrders] = await Promise.all([
       getPaymentGatewayConfig(),
       listPaymentOrders(100),
-      listSubscriptions(100),
     ]);
+
+    // Auto-reconcile recent PENDING orders with PressoPay so Admin always sees live status
+    const pendingToReconcile = rawOrders
+      .filter((o) => o.status === 'PENDING' && Boolean(o.pressoReference))
+      .slice(0, 15);
+    if (pendingToReconcile.length > 0) {
+      await Promise.all(
+        pendingToReconcile.map(async (o) => {
+          try {
+            const updated = await reconcileOrderWithPressoPay(o);
+            Object.assign(o, updated);
+          } catch {
+            // keep existing order record if gateway check fails transiently
+          }
+        })
+      );
+    }
+
+    const orders = rawOrders;
+    const subscriptions = await listSubscriptions(100);
 
     const maskedKey = gateway.apiKey
       ? `${gateway.apiKey.slice(0, 7)}...${gateway.apiKey.slice(-4)}`
