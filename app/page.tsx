@@ -272,10 +272,10 @@ export default function TweveServerFleetAdmin() {
   // App Version Control State
   const [appVersionConfig, setAppVersionConfig] = useState({
     enabled: true,
-    force_update: false,
-    show_dialog: true,
+    force_update: true,
+    show_dialog: false,
     latest_version_code: 54,
-    min_version_code: 53,
+    min_version_code: 54,
     latest_version_name: '6.2.4',
     title: 'New Version Available (v6.2.4)',
     message:

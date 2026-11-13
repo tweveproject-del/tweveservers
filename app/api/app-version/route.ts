@@ -20,10 +20,10 @@ export interface AppVersionConfig {
 
 const DEFAULT_VERSION_CONFIG: AppVersionConfig = {
   enabled: true,
-  force_update: false,
-  show_dialog: true,
+  force_update: true,
+  show_dialog: false,
   latest_version_code: 54,
-  min_version_code: 53,
+  min_version_code: 54,
   latest_version_name: '6.2.4',
   title: 'New Version Available (v6.2.4)',
   message:
@@ -93,7 +93,7 @@ export async function PUT(req: NextRequest) {
     const payload: AppVersionConfig = {
       enabled: body.enabled !== false,
       force_update: Boolean(body.force_update),
-      show_dialog: body.show_dialog !== false,
+      show_dialog: Boolean(body.show_dialog),
       latest_version_code: latestCode,
       min_version_code: minCode,
       latest_version_name: String(body.latest_version_name || '6.2.4').trim(),
