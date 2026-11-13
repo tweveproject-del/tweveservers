@@ -17,6 +17,7 @@ import {
   getFirebaseAccessToken,
   FIREBASE_RTDB_URL,
 } from '../../lib/auth';
+import { recordSecurityAuditLog } from '../../lib/audit';
 import { VpnServerItem, PaymentOrderRecord } from '../../lib/types';
 
 function getClientIp(req: NextRequest): string {
@@ -92,6 +93,15 @@ export async function GET(req: NextRequest) {
   if (mode === 'admin') {
     const auth = await verifyAdminRequest(req);
     if (!auth.valid) {
+      await recordSecurityAuditLog({
+        req,
+        category: 'SECURITY_ALERT',
+        severity: 'critical',
+        action: 'UNAUTHORIZED_ACCESS',
+        actor: 'anonymous',
+        details: 'Unauthorized GET attempt to /api/payments?mode=admin.',
+        metadata: { method: 'GET', path: '/api/payments?mode=admin' },
+      });
       return NextResponse.json(
         { error: 'Unauthorized: Admin login required' },
         { status: 401, headers: CORS_HEADERS }
@@ -524,6 +534,15 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
+    await recordSecurityAuditLog({
+      req,
+      category: 'SECURITY_ALERT',
+      severity: 'critical',
+      action: 'UNAUTHORIZED_ACCESS',
+      actor: 'anonymous',
+      details: 'Unauthorized PUT attempt to /api/payments.',
+      metadata: { method: 'PUT', path: '/api/payments' },
+    });
     return NextResponse.json(
       { error: 'Unauthorized: Admin login required' },
       { status: 401, headers: CORS_HEADERS }
@@ -543,6 +562,21 @@ export async function PUT(req: NextRequest) {
     const maskedKey = updated.apiKey
       ? `${updated.apiKey.slice(0, 7)}...${updated.apiKey.slice(-4)}`
       : 'Not Configured';
+
+    await recordSecurityAuditLog({
+      req,
+      category: 'PAYMENT',
+      severity: 'warning',
+      action: 'PAYMENT_GATEWAY_UPDATE',
+      actor: auth.email || 'admin',
+      details: `Updated payment gateway/pricing (7d=${updated.defaultPrice7Days} TZS, 30d=${updated.defaultPrice30Days} TZS).`,
+      metadata: {
+        defaultPrice7Days: updated.defaultPrice7Days,
+        defaultPrice30Days: updated.defaultPrice30Days,
+        rotatedApiKey: Boolean(body.apiKey),
+        rotatedApiSecret: Boolean(body.apiSecret),
+      },
+    });
 
     return NextResponse.json(
       {

@@ -7,6 +7,7 @@ import {
   FIREBASE_RTDB_URL,
   FIREBASE_PROJECT_ID,
 } from '../../lib/auth';
+import { recordSecurityAuditLog } from '../../lib/audit';
 import {
   getPaymentGatewayConfig,
   getServerPackages,
@@ -317,6 +318,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
+    await recordSecurityAuditLog({
+      req,
+      category: 'SECURITY_ALERT',
+      severity: 'critical',
+      action: 'UNAUTHORIZED_ACCESS',
+      actor: 'anonymous',
+      details: 'Unauthorized POST attempt to /api/servers.',
+      metadata: { method: 'POST', path: '/api/servers' },
+    });
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
   try {
@@ -425,6 +435,15 @@ export async function POST(req: NextRequest) {
     }
 
     await writeManifest(manifest);
+    await recordSecurityAuditLog({
+      req,
+      category: 'SERVER',
+      severity: 'info',
+      action: existingIdx >= 0 ? 'SERVER_UPDATE' : 'SERVER_CREATE',
+      actor: auth.email || 'admin',
+      details: `${existingIdx >= 0 ? 'Updated' : 'Deployed'} server "${newServer.name}" (${newServer.protocol}, ${newServer.tier}, id=${newServer.id}).`,
+      metadata: { serverId: newServer.id, name: newServer.name, tier: newServer.tier, protocol: newServer.protocol },
+    });
     return NextResponse.json({ success: true, server: newServer, manifest });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
@@ -434,6 +453,15 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
+    await recordSecurityAuditLog({
+      req,
+      category: 'SECURITY_ALERT',
+      severity: 'critical',
+      action: 'UNAUTHORIZED_ACCESS',
+      actor: 'anonymous',
+      details: 'Unauthorized PUT attempt to /api/servers.',
+      metadata: { method: 'PUT', path: '/api/servers' },
+    });
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
   try {
@@ -469,6 +497,27 @@ export async function PUT(req: NextRequest) {
     }
 
     await writeManifest(manifest);
+    if (body.announcement !== undefined) {
+      await recordSecurityAuditLog({
+        req,
+        category: 'ADMIN_ACTION',
+        severity: 'info',
+        action: 'BROADCAST_UPDATE',
+        actor: auth.email || 'admin',
+        details: `Updated global announcement (${String(body.announcement).slice(0, 80) || 'cleared'}).`,
+      });
+    }
+    if (body.id) {
+      await recordSecurityAuditLog({
+        req,
+        category: 'SERVER',
+        severity: 'info',
+        action: 'SERVER_UPDATE',
+        actor: auth.email || 'admin',
+        details: `Updated server ${body.id}${body.isActive !== undefined ? ` (isActive=${body.isActive})` : ''}.`,
+        metadata: { serverId: body.id },
+      });
+    }
     return NextResponse.json({ success: true, manifest });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
@@ -478,12 +527,22 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
+    await recordSecurityAuditLog({
+      req,
+      category: 'SECURITY_ALERT',
+      severity: 'critical',
+      action: 'UNAUTHORIZED_ACCESS',
+      actor: 'anonymous',
+      details: 'Unauthorized DELETE attempt to /api/servers.',
+      metadata: { method: 'DELETE', path: '/api/servers' },
+    });
     return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
   }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   const manifest = await readManifest();
 
+  const targetName = id === 'ALL' ? 'ALL SERVERS' : manifest.servers.find((s) => s.id === id)?.name || id;
   if (id === 'ALL') {
     manifest.servers = [];
   } else if (id) {
@@ -491,5 +550,14 @@ export async function DELETE(req: NextRequest) {
   }
 
   await writeManifest(manifest);
+  await recordSecurityAuditLog({
+    req,
+    category: 'SERVER',
+    severity: id === 'ALL' ? 'critical' : 'warning',
+    action: id === 'ALL' ? 'SERVER_PURGE_ALL' : 'SERVER_DELETE',
+    actor: auth.email || 'admin',
+    details: `Deleted server: ${targetName} (id=${id || 'none'}).`,
+    metadata: { serverId: id },
+  });
   return NextResponse.json({ success: true, manifest });
 }

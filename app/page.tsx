@@ -250,8 +250,41 @@ export default function TweveServerFleetAdmin() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginLockedUntil, setLoginLockedUntil] = useState<number>(0);
 
-  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast')
-  const [mobileViewTab, setMobileViewTab] = useState<'fleet' | 'deploy' | 'payments' | 'broadcast' | 'telemetry'>('fleet');
+  // Mobile/Tablet Responsive Tab Switcher ('all' | 'deploy' | 'fleet' | 'payments' | 'broadcast' | 'telemetry' | 'security')
+  const [mobileViewTab, setMobileViewTab] = useState<'fleet' | 'deploy' | 'payments' | 'broadcast' | 'telemetry' | 'security'>('fleet');
+
+  // Security & Admin Activity Audit Logs State
+  const [securityLogs, setSecurityLogs] = useState<any[]>([]);
+  const [securityBans, setSecurityBans] = useState<any[]>([]);
+  const [securityStats, setSecurityStats] = useState<{
+    totalLogs: number;
+    criticalCount: number;
+    warningCount: number;
+    activeBansCount: number;
+    adminActionsCount: number;
+  }>({ totalLogs: 0, criticalCount: 0, warningCount: 0, activeBansCount: 0, adminActionsCount: 0 });
+  const [securityFilter, setSecurityFilter] = useState<string>('ALL');
+  const [securitySearch, setSecuritySearch] = useState<string>('');
+  const [securityLoading, setSecurityLoading] = useState<boolean>(false);
+  const [unbanningKey, setUnbanningKey] = useState<string | null>(null);
+
+  // App Version Control State
+  const [appVersionConfig, setAppVersionConfig] = useState({
+    enabled: true,
+    force_update: false,
+    show_dialog: true,
+    latest_version_code: 54,
+    min_version_code: 53,
+    latest_version_name: '6.2.4',
+    title: 'New Version Available (v6.2.4)',
+    message:
+      'Tweve Tunnel v6.2.4 is now available with improved cloud config sync, faster connections, and stability fixes. Tap Update Now to download the latest version.',
+    button_text: 'Update Now',
+    update_url: 'https://twevetunnel.deployzy.com/twevetunnel.bin',
+    updated_at: '',
+  });
+  const [savingVersion, setSavingVersion] = useState<boolean>(false);
+  const [versionSaveMsg, setVersionSaveMsg] = useState<string>('');
   const [protoCategory, setProtoCategory] = useState<ProtocolCategory>('all');
   const [fleetSearch, setFleetSearch] = useState('');
 
@@ -430,6 +463,95 @@ export default function TweveServerFleetAdmin() {
     }
   }, []);
 
+  const fetchSecurityLogs = useCallback(async () => {
+    setSecurityLoading(true);
+    try {
+      const res = await fetch('/api/security-logs?limit=250', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setSecurityLogs(data.logs || []);
+        setSecurityBans(data.bans || []);
+        if (data.stats) setSecurityStats(data.stats);
+      }
+    } catch {
+      // silent
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, []);
+
+  const handleUnbanIp = async (banKey: string, ip: string) => {
+    setUnbanningKey(banKey);
+    try {
+      const res = await fetch('/api/security-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unban', banKey, ip }),
+      });
+      if (res.ok) {
+        await fetchSecurityLogs();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setUnbanningKey(null);
+    }
+  };
+
+  const handlePruneOldLogs = async () => {
+    try {
+      const res = await fetch('/api/security-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_resolved' }),
+      });
+      if (res.ok) {
+        await fetchSecurityLogs();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchAppVersion = useCallback(async () => {
+    try {
+      const res = await fetch('/api/app-version', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.version) {
+          setAppVersionConfig((prev) => ({ ...prev, ...data.version }));
+        }
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const handleSaveAppVersion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingVersion(true);
+    setVersionSaveMsg('');
+    try {
+      const res = await fetch('/api/app-version', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appVersionConfig),
+      });
+      const data = await res.json();
+      if (res.ok && data.version) {
+        setAppVersionConfig((prev) => ({ ...prev, ...data.version }));
+        setVersionSaveMsg('Published! Old app users will now receive the Update Dialog.');
+        fetchSecurityLogs();
+      } else {
+        setVersionSaveMsg(`Error: ${data.error || 'Failed to save version config'}`);
+      }
+    } catch (err: any) {
+      setVersionSaveMsg(`Error: ${err.message || 'Network error'}`);
+    } finally {
+      setSavingVersion(false);
+    }
+  };
+
   const fetchStoreCatalog = useCallback(async () => {
     setStoreLoading(true);
     try {
@@ -478,9 +600,12 @@ export default function TweveServerFleetAdmin() {
             fetchServers();
             fetchAnalytics();
             fetchPaymentsAdmin();
+            fetchSecurityLogs();
+            fetchAppVersion();
             interval = setInterval(() => {
               fetchAnalytics();
               fetchPaymentsAdmin();
+              fetchSecurityLogs();
             }, 5000);
           }
         }
@@ -493,7 +618,7 @@ export default function TweveServerFleetAdmin() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [fetchServers, fetchAnalytics, fetchPaymentsAdmin]);
+  }, [fetchServers, fetchAnalytics, fetchPaymentsAdmin, fetchSecurityLogs, fetchAppVersion]);
 
   // Poll PressoPay payment order verification while an order is PENDING
   useEffect(() => {
@@ -1608,6 +1733,27 @@ export default function TweveServerFleetAdmin() {
             <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
           </button>
 
+          <button
+            type="button"
+            className={`slide-menu-item ${mobileViewTab === 'security' ? 'active' : ''}`}
+            onClick={() => {
+              setMobileViewTab('security');
+              setIsSlideMenuOpen(false);
+              fetchSecurityLogs();
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <Shield style={{ width: '1.05rem', height: '1.05rem', color: '#f87171' }} />
+              <div>
+                <div>Security & Audit Logs</div>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                  Admin activities, IP bans, security alerts
+                </div>
+              </div>
+            </div>
+            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
+          </button>
+
           <div style={{ padding: '0.75rem 0.5rem 0.25rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Fleet Maintenance
           </div>
@@ -1753,7 +1899,7 @@ export default function TweveServerFleetAdmin() {
               </strong>
             </div>
 
-            
+
             <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
               <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
               <span>Exit</span>
@@ -1875,6 +2021,7 @@ export default function TweveServerFleetAdmin() {
             { id: 'payments', label: `💰 Profits (${totalProfitTzs > 0 ? (totalProfitTzs >= 1000 ? (totalProfitTzs / 1000).toFixed(0) + 'k' : totalProfitTzs) : '0'})` },
             { id: 'broadcast', label: '📢 Notice' },
             { id: 'telemetry', label: '📊 Telemetry' },
+            { id: 'security', label: `🛡️ Security${securityStats.criticalCount + securityStats.activeBansCount > 0 ? ` (${securityStats.criticalCount + securityStats.activeBansCount})` : ''}` },
           ].map((tab) => {
             const active = mobileViewTab === tab.id;
             return (
@@ -2994,453 +3141,453 @@ export default function TweveServerFleetAdmin() {
           >
             {/* Active Fleet Servers Card */}
             <section className="fleet-card fleet-section-pad">
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '0.75rem',
-                    paddingBottom: '0.9rem',
-                    borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <div
-                      style={{
-                        padding: '0.4rem',
-                        borderRadius: '0.7rem',
-                        background: 'rgba(56, 189, 248, 0.15)',
-                        border: '1px solid rgba(56, 189, 248, 0.3)',
-                        color: '#38bdf8',
-                      }}
-                    >
-                      <Radio style={{ width: '1.1rem', height: '1.1rem' }} />
-                    </div>
-                    <div>
-                      <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff' }}>
-                        Active Fleet ({servers.length})
-                      </h3>
-                      <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                        Live servers synced to the app
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={fetchServers}
-                    disabled={loading}
-                    className="btn-fleet-secondary"
-                    style={{ padding: '0.4rem 0.75rem' }}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  paddingBottom: '0.9rem',
+                  borderBottom: '1px solid rgba(56, 189, 248, 0.18)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div
+                    style={{
+                      padding: '0.4rem',
+                      borderRadius: '0.7rem',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                      color: '#38bdf8',
+                    }}
                   >
-                    <RefreshCw
-                      style={{ width: '0.8rem', height: '0.8rem' }}
-                      className={loading ? 'animate-spin' : ''}
-                    />
-                    <span>Refresh</span>
-                  </button>
+                    <Radio style={{ width: '1.1rem', height: '1.1rem' }} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#ffffff' }}>
+                      Active Fleet ({servers.length})
+                    </h3>
+                    <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                      Live servers synced to the app
+                    </p>
+                  </div>
                 </div>
 
-                {/* Search Filter */}
-                {servers.length > 0 && (
-                  <div style={{ marginTop: '0.85rem', position: 'relative' }}>
-                    <Search
-                      style={{
-                        width: '0.9rem',
-                        height: '0.9rem',
-                        color: '#64748b',
-                        position: 'absolute',
-                        left: '0.85rem',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                      }}
-                    />
-                    <input
-                      type="text"
-                      value={fleetSearch}
-                      onChange={(e) => setFleetSearch(e.target.value)}
-                      placeholder="Filter servers by name, host, or protocol..."
-                      style={{ paddingLeft: '2.35rem', fontSize: '0.76rem' }}
-                    />
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={fetchServers}
+                  disabled={loading}
+                  className="btn-fleet-secondary"
+                  style={{ padding: '0.4rem 0.75rem' }}
+                >
+                  <RefreshCw
+                    style={{ width: '0.8rem', height: '0.8rem' }}
+                    className={loading ? 'animate-spin' : ''}
+                  />
+                  <span>Refresh</span>
+                </button>
+              </div>
 
-                <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                  {filteredServers.length === 0 ? (
-                    <div
-                      style={{
-                        textAlign: 'center',
-                        padding: '2.25rem 1rem',
-                        color: '#64748b',
-                        fontSize: '0.8rem',
-                      }}
-                    >
-                      <Server style={{ width: '1.85rem', height: '1.85rem', margin: '0 auto 0.5rem', opacity: 0.4 }} />
-                      <div style={{ fontWeight: 700, color: '#94a3b8' }}>No matching servers in fleet</div>
-                    </div>
-                  ) : (
-                    filteredServers.map((s) => {
-                      const detailsVisible = showConfigDetails[s.id] || false;
-                      const countryObj = COUNTRIES.find((c) => c.code === s.country);
-                      const srvStats =
-                        analytics.serverTelemetry?.[s.id] ||
-                        analytics.serverTelemetry?.[s.name];
-                      const activeUsersOnServer =
-                        srvStats?.activeUsers ??
-                        analytics.topServers?.[s.id] ??
-                        analytics.topServers?.[s.name] ??
-                        0;
-                      const totalUsersOnServer = Math.max(
-                        activeUsersOnServer,
-                        srvStats?.totalUsers ?? (s.connectedUsersCount || 0)
-                      );
-                      return (
+              {/* Search Filter */}
+              {servers.length > 0 && (
+                <div style={{ marginTop: '0.85rem', position: 'relative' }}>
+                  <Search
+                    style={{
+                      width: '0.9rem',
+                      height: '0.9rem',
+                      color: '#64748b',
+                      position: 'absolute',
+                      left: '0.85rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={fleetSearch}
+                    onChange={(e) => setFleetSearch(e.target.value)}
+                    placeholder="Filter servers by name, host, or protocol..."
+                    style={{ paddingLeft: '2.35rem', fontSize: '0.76rem' }}
+                  />
+                </div>
+              )}
+
+              <div style={{ marginTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                {filteredServers.length === 0 ? (
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      padding: '2.25rem 1rem',
+                      color: '#64748b',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    <Server style={{ width: '1.85rem', height: '1.85rem', margin: '0 auto 0.5rem', opacity: 0.4 }} />
+                    <div style={{ fontWeight: 700, color: '#94a3b8' }}>No matching servers in fleet</div>
+                  </div>
+                ) : (
+                  filteredServers.map((s) => {
+                    const detailsVisible = showConfigDetails[s.id] || false;
+                    const countryObj = COUNTRIES.find((c) => c.code === s.country);
+                    const srvStats =
+                      analytics.serverTelemetry?.[s.id] ||
+                      analytics.serverTelemetry?.[s.name];
+                    const activeUsersOnServer =
+                      srvStats?.activeUsers ??
+                      analytics.topServers?.[s.id] ??
+                      analytics.topServers?.[s.name] ??
+                      0;
+                    const totalUsersOnServer = Math.max(
+                      activeUsersOnServer,
+                      srvStats?.totalUsers ?? (s.connectedUsersCount || 0)
+                    );
+                    return (
+                      <div
+                        key={s.id}
+                        className="server-fleet-row"
+                        style={{
+                          opacity: s.isActive ? 1 : 0.6,
+                          borderColor:
+                            editingServerId === s.id ? '#10b981' : undefined,
+                        }}
+                      >
                         <div
-                          key={s.id}
-                          className="server-fleet-row"
                           style={{
-                            opacity: s.isActive ? 1 : 0.6,
-                            borderColor:
-                              editingServerId === s.id ? '#10b981' : undefined,
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
                           }}
                         >
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '0.75rem',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', minWidth: 0 }}>
+                            <div
+                              style={{
+                                width: '2.35rem',
+                                height: '2.35rem',
+                                borderRadius: '0.65rem',
+                                backgroundColor: '#030712',
+                                border: '1px solid rgba(56, 189, 248, 0.2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1.15rem',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {countryObj ? countryObj.flag : '🌐'}
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#ffffff' }}>
+                                  {s.name}
+                                </span>
+                                <span
+                                  style={{
+                                    padding: '0.1rem 0.45rem',
+                                    borderRadius: '0.35rem',
+                                    fontSize: '0.62rem',
+                                    fontWeight: 800,
+                                    textTransform: 'uppercase',
+                                    background: 'rgba(56, 189, 248, 0.15)',
+                                    color: '#38bdf8',
+                                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                                  }}
+                                >
+                                  {s.protocol.replace(/_/g, ' ')}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.62rem',
+                                    fontWeight: 800,
+                                    color: '#34d399',
+                                  }}
+                                >
+                                  {s.tier}
+                                </span>
+                              </div>
                               <div
                                 style={{
-                                  width: '2.35rem',
-                                  height: '2.35rem',
-                                  borderRadius: '0.65rem',
-                                  backgroundColor: '#030712',
-                                  border: '1px solid rgba(56, 189, 248, 0.2)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '1.15rem',
-                                  flexShrink: 0,
+                                  fontSize: '0.72rem',
+                                  color: '#94a3b8',
+                                  marginTop: '0.18rem',
+                                  fontFamily: 'monospace',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
                                 }}
                               >
-                                {countryObj ? countryObj.flag : '🌐'}
+                                {s.host}
                               </div>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                                  <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#ffffff' }}>
-                                    {s.name}
-                                  </span>
-                                  <span
-                                    style={{
-                                      padding: '0.1rem 0.45rem',
-                                      borderRadius: '0.35rem',
-                                      fontSize: '0.62rem',
-                                      fontWeight: 800,
-                                      textTransform: 'uppercase',
-                                      background: 'rgba(56, 189, 248, 0.15)',
-                                      color: '#38bdf8',
-                                      border: '1px solid rgba(56, 189, 248, 0.3)',
-                                    }}
-                                  >
-                                    {s.protocol.replace(/_/g, ' ')}
-                                  </span>
-                                  <span
-                                    style={{
-                                      fontSize: '0.62rem',
-                                      fontWeight: 800,
-                                      color: '#34d399',
-                                    }}
-                                  >
-                                    {s.tier}
-                                  </span>
-                                </div>
-                                <div
+                              {/* Per-Server Live Users & MB/GB Usage Badges */}
+                              <div
+                                style={{
+                                  marginTop: '0.38rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                  flexWrap: 'wrap',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.66rem',
+                                }}
+                              >
+                                <span
                                   style={{
-                                    fontSize: '0.72rem',
-                                    color: '#94a3b8',
-                                    marginTop: '0.18rem',
-                                    fontFamily: 'monospace',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  {s.host}
-                                </div>
-                                {/* Per-Server Live Users & MB/GB Usage Badges */}
-                                <div
-                                  style={{
-                                    marginTop: '0.38rem',
-                                    display: 'flex',
+                                    display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '0.45rem',
-                                    flexWrap: 'wrap',
-                                    fontFamily: 'monospace',
-                                    fontSize: '0.66rem',
+                                    gap: '0.3rem',
+                                    padding: '0.12rem 0.48rem',
+                                    borderRadius: '0.4rem',
+                                    background:
+                                      activeUsersOnServer > 0
+                                        ? 'rgba(16, 185, 129, 0.16)'
+                                        : 'rgba(30, 41, 59, 0.65)',
+                                    border:
+                                      activeUsersOnServer > 0
+                                        ? '1px solid rgba(16, 185, 129, 0.4)'
+                                        : '1px solid rgba(71, 85, 105, 0.35)',
+                                    color: activeUsersOnServer > 0 ? '#34d399' : '#94a3b8',
+                                    fontWeight: 700,
                                   }}
                                 >
+                                  <Users style={{ width: '0.68rem', height: '0.68rem' }} />
+                                  {activeUsersOnServer} Online ({totalUsersOnServer} users)
+                                </span>
+
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.12rem 0.48rem',
+                                    borderRadius: '0.4rem',
+                                    background: 'rgba(251, 191, 36, 0.12)',
+                                    border: '1px solid rgba(251, 191, 36, 0.3)',
+                                    color: '#fcd34d',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <Activity style={{ width: '0.68rem', height: '0.68rem' }} />
+                                  {srvStats?.formattedTotal || '0.00 MB'}
+                                  <span style={{ color: '#34d399', fontWeight: 600 }}>
+                                    ↓{srvStats?.formattedDown || '0.00 MB'}
+                                  </span>
+                                  <span style={{ color: '#38bdf8', fontWeight: 600 }}>
+                                    ↑{srvStats?.formattedUp || '0.00 MB'}
+                                  </span>
+                                </span>
+
+                                {/* Expiration Countdown / Status Badge */}
+                                {s.expiresAt && s.expiresAt > 0 ? (
+                                  (() => {
+                                    const countdown = formatCountdown(s.expiresAt);
+                                    const isExp = countdown === 'EXPIRED' || s.isExpired;
+                                    const modeLabel =
+                                      (s.expireAction || 'delete') === 'hide'
+                                        ? 'Hide on Expiry'
+                                        : 'Auto-Delete';
+                                    return (
+                                      <span
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '0.32rem',
+                                          padding: '0.12rem 0.5rem',
+                                          borderRadius: '0.4rem',
+                                          background: isExp
+                                            ? 'rgba(244, 63, 94, 0.18)'
+                                            : 'rgba(168, 85, 247, 0.16)',
+                                          border: isExp
+                                            ? '1px solid rgba(244, 63, 94, 0.45)'
+                                            : '1px solid rgba(168, 85, 247, 0.38)',
+                                          color: isExp ? '#fda4af' : '#d8b4fe',
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        ⏱{' '}
+                                        {isExp
+                                          ? 'EXPIRED · HIDDEN FROM USERS'
+                                          : `${countdown} left · ${modeLabel}`}
+                                      </span>
+                                    );
+                                  })()
+                                ) : (
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '0.28rem',
+                                      padding: '0.12rem 0.46rem',
+                                      borderRadius: '0.4rem',
+                                      background: 'rgba(15, 23, 42, 0.7)',
+                                      border: '1px solid rgba(71, 85, 105, 0.3)',
+                                      color: '#64748b',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    ∞ No Expiry
+                                  </span>
+                                )}
+
+                                {/* Package & Price Badge */}
+                                {(s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM') && (
                                   <span
                                     style={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
                                       gap: '0.3rem',
-                                      padding: '0.12rem 0.48rem',
+                                      padding: '0.12rem 0.5rem',
                                       borderRadius: '0.4rem',
-                                      background:
-                                        activeUsersOnServer > 0
-                                          ? 'rgba(16, 185, 129, 0.16)'
-                                          : 'rgba(30, 41, 59, 0.65)',
-                                      border:
-                                        activeUsersOnServer > 0
-                                          ? '1px solid rgba(16, 185, 129, 0.4)'
-                                          : '1px solid rgba(71, 85, 105, 0.35)',
-                                      color: activeUsersOnServer > 0 ? '#34d399' : '#94a3b8',
-                                      fontWeight: 700,
+                                      background: 'rgba(16, 185, 129, 0.16)',
+                                      border: '1px solid rgba(16, 185, 129, 0.42)',
+                                      color: '#6ee7b7',
+                                      fontWeight: 800,
                                     }}
                                   >
-                                    <Users style={{ width: '0.68rem', height: '0.68rem' }} />
-                                    {activeUsersOnServer} Online ({totalUsersOnServer} users)
+                                    💳{' '}
+                                    {s.packagePricingMode === 'only_7d'
+                                      ? `7D Only: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS`
+                                      : s.packagePricingMode === 'only_30d'
+                                        ? `30D Only: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`
+                                        : `7D: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS • 30D: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`}
                                   </span>
-
-                                  <span
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.35rem',
-                                      padding: '0.12rem 0.48rem',
-                                      borderRadius: '0.4rem',
-                                      background: 'rgba(251, 191, 36, 0.12)',
-                                      border: '1px solid rgba(251, 191, 36, 0.3)',
-                                      color: '#fcd34d',
-                                      fontWeight: 700,
-                                    }}
-                                  >
-                                    <Activity style={{ width: '0.68rem', height: '0.68rem' }} />
-                                    {srvStats?.formattedTotal || '0.00 MB'}
-                                    <span style={{ color: '#34d399', fontWeight: 600 }}>
-                                      ↓{srvStats?.formattedDown || '0.00 MB'}
-                                    </span>
-                                    <span style={{ color: '#38bdf8', fontWeight: 600 }}>
-                                      ↑{srvStats?.formattedUp || '0.00 MB'}
-                                    </span>
-                                  </span>
-
-                                  {/* Expiration Countdown / Status Badge */}
-                                  {s.expiresAt && s.expiresAt > 0 ? (
-                                    (() => {
-                                      const countdown = formatCountdown(s.expiresAt);
-                                      const isExp = countdown === 'EXPIRED' || s.isExpired;
-                                      const modeLabel =
-                                        (s.expireAction || 'delete') === 'hide'
-                                          ? 'Hide on Expiry'
-                                          : 'Auto-Delete';
-                                      return (
-                                        <span
-                                          style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '0.32rem',
-                                            padding: '0.12rem 0.5rem',
-                                            borderRadius: '0.4rem',
-                                            background: isExp
-                                              ? 'rgba(244, 63, 94, 0.18)'
-                                              : 'rgba(168, 85, 247, 0.16)',
-                                            border: isExp
-                                              ? '1px solid rgba(244, 63, 94, 0.45)'
-                                              : '1px solid rgba(168, 85, 247, 0.38)',
-                                            color: isExp ? '#fda4af' : '#d8b4fe',
-                                            fontWeight: 700,
-                                          }}
-                                        >
-                                          ⏱{' '}
-                                          {isExp
-                                            ? 'EXPIRED · HIDDEN FROM USERS'
-                                            : `${countdown} left · ${modeLabel}`}
-                                        </span>
-                                      );
-                                    })()
-                                  ) : (
-                                    <span
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '0.28rem',
-                                        padding: '0.12rem 0.46rem',
-                                        borderRadius: '0.4rem',
-                                        background: 'rgba(15, 23, 42, 0.7)',
-                                        border: '1px solid rgba(71, 85, 105, 0.3)',
-                                        color: '#64748b',
-                                        fontWeight: 600,
-                                      }}
-                                    >
-                                      ∞ No Expiry
-                                    </span>
-                                  )}
-
-                                  {/* Package & Price Badge */}
-                                  {(s.requiresPackage || s.tier === 'VIP' || s.tier === 'PREMIUM') && (
-                                    <span
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '0.3rem',
-                                        padding: '0.12rem 0.5rem',
-                                        borderRadius: '0.4rem',
-                                        background: 'rgba(16, 185, 129, 0.16)',
-                                        border: '1px solid rgba(16, 185, 129, 0.42)',
-                                        color: '#6ee7b7',
-                                        fontWeight: 800,
-                                      }}
-                                    >
-                                      💳{' '}
-                                      {s.packagePricingMode === 'only_7d'
-                                        ? `7D Only: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS`
-                                        : s.packagePricingMode === 'only_30d'
-                                          ? `30D Only: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`
-                                          : `7D: ${Number(s.price7DaysTzs || 2700).toLocaleString()} TZS • 30D: ${Number(s.price30DaysTzs || 8500).toLocaleString()} TZS`}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleLoadServerIntoForm(s)}
-                                className="btn-fleet-secondary"
-                                style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
-                                title="Edit server in form"
-                              >
-                                <Edit3 style={{ width: '0.75rem', height: '0.75rem', color: '#38bdf8' }} />
-                                <span>Edit</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setShowConfigDetails((prev) => ({
-                                    ...prev,
-                                    [s.id]: !prev[s.id],
-                                  }))
-                                }
-                                className="btn-fleet-secondary"
-                                style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
-                              >
-                                {detailsVisible ? (
-                                  <EyeOff style={{ width: '0.75rem', height: '0.75rem' }} />
-                                ) : (
-                                  <Eye style={{ width: '0.75rem', height: '0.75rem' }} />
                                 )}
-                                <span>{detailsVisible ? 'Hide' : 'View'}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleToggleStatus(s)}
-                                style={{
-                                  padding: '0.35rem 0.65rem',
-                                  borderRadius: '0.6rem',
-                                  fontSize: '0.7rem',
-                                  fontWeight: 700,
-                                  border: s.isActive
-                                    ? '1px solid rgba(16, 185, 129, 0.4)'
-                                    : '1px solid rgba(148, 163, 184, 0.3)',
-                                  background: s.isActive
-                                    ? 'rgba(16, 185, 129, 0.15)'
-                                    : 'rgba(148, 163, 184, 0.1)',
-                                  color: s.isActive ? '#34d399' : '#94a3b8',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {s.isActive ? 'Online' : 'Paused'}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteServer(s.id, s.name)}
-                                style={{
-                                  padding: '0.4rem',
-                                  borderRadius: '0.6rem',
-                                  background: 'rgba(244, 63, 94, 0.15)',
-                                  border: '1px solid rgba(244, 63, 94, 0.3)',
-                                  color: '#fb7185',
-                                  cursor: 'pointer',
-                                }}
-                                aria-label={`Delete server ${s.name}`}
-                                title="Delete server"
-                              >
-                                <Trash2 style={{ width: '0.82rem', height: '0.82rem' }} />
-                              </button>
+                              </div>
                             </div>
                           </div>
 
-                          {detailsVisible && (
-                            <div
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadServerIntoForm(s)}
+                              className="btn-fleet-secondary"
+                              style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
+                              title="Edit server in form"
+                            >
+                              <Edit3 style={{ width: '0.75rem', height: '0.75rem', color: '#38bdf8' }} />
+                              <span>Edit</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowConfigDetails((prev) => ({
+                                  ...prev,
+                                  [s.id]: !prev[s.id],
+                                }))
+                              }
+                              className="btn-fleet-secondary"
+                              style={{ padding: '0.35rem 0.6rem', fontSize: '0.7rem' }}
+                            >
+                              {detailsVisible ? (
+                                <EyeOff style={{ width: '0.75rem', height: '0.75rem' }} />
+                              ) : (
+                                <Eye style={{ width: '0.75rem', height: '0.75rem' }} />
+                              )}
+                              <span>{detailsVisible ? 'Hide' : 'View'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(s)}
                               style={{
-                                marginTop: '0.75rem',
-                                fontSize: '0.72rem',
-                                fontFamily: 'monospace',
-                                backgroundColor: '#030712',
-                                padding: '0.75rem',
-                                borderRadius: '0.65rem',
-                                border: '1px solid rgba(56, 189, 248, 0.16)',
-                                color: '#cbd5e1',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '0.3rem',
-                                wordBreak: 'break-all',
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '0.6rem',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                border: s.isActive
+                                  ? '1px solid rgba(16, 185, 129, 0.4)'
+                                  : '1px solid rgba(148, 163, 184, 0.3)',
+                                background: s.isActive
+                                  ? 'rgba(16, 185, 129, 0.15)'
+                                  : 'rgba(148, 163, 184, 0.1)',
+                                color: s.isActive ? '#34d399' : '#94a3b8',
+                                cursor: 'pointer',
                               }}
                             >
-                              <div>
-                                Host: <span style={{ color: '#38bdf8' }}>{s.host}</span> (Port:{' '}
-                                {s.portDirect || s.v2rayPort || 443})
-                              </div>
-                              {s.username && (
-                                <div>
-                                  SSH User: <span style={{ color: '#34d399' }}>{s.username}</span>
-                                </div>
-                              )}
-                              {s.dnsttNameserver && (
-                                <div>
-                                  NS: <span style={{ color: '#34d399' }}>{s.dnsttNameserver}</span>
-                                </div>
-                              )}
-                              {s.dnsttPubkey && (
-                                <div>
-                                  Pubkey: <span style={{ color: '#c084fc' }}>{s.dnsttPubkey}</span>
-                                </div>
-                              )}
-                              {s.v2rayUuid && (
-                                <div>
-                                  UUID: <span style={{ color: '#c084fc' }}>{s.v2rayUuid}</span>
-                                </div>
-                              )}
-                              {s.v2raySni && (
-                                <div>
-                                  SNI: <span style={{ color: '#34d399' }}>{s.v2raySni}</span>
-                                </div>
-                              )}
-                              {s.payload && (
-                                <div>
-                                  Payload: <span style={{ color: '#fbbf24' }}>{s.payload}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                              {s.isActive ? 'Online' : 'Paused'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteServer(s.id, s.name)}
+                              style={{
+                                padding: '0.4rem',
+                                borderRadius: '0.6rem',
+                                background: 'rgba(244, 63, 94, 0.15)',
+                                border: '1px solid rgba(244, 63, 94, 0.3)',
+                                color: '#fb7185',
+                                cursor: 'pointer',
+                              }}
+                              aria-label={`Delete server ${s.name}`}
+                              title="Delete server"
+                            >
+                              <Trash2 style={{ width: '0.82rem', height: '0.82rem' }} />
+                            </button>
+                          </div>
                         </div>
-                      );
-                    })
-                  )}
-                </div>
-              </section>
-            </div>
+
+                        {detailsVisible && (
+                          <div
+                            style={{
+                              marginTop: '0.75rem',
+                              fontSize: '0.72rem',
+                              fontFamily: 'monospace',
+                              backgroundColor: '#030712',
+                              padding: '0.75rem',
+                              borderRadius: '0.65rem',
+                              border: '1px solid rgba(56, 189, 248, 0.16)',
+                              color: '#cbd5e1',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.3rem',
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            <div>
+                              Host: <span style={{ color: '#38bdf8' }}>{s.host}</span> (Port:{' '}
+                              {s.portDirect || s.v2rayPort || 443})
+                            </div>
+                            {s.username && (
+                              <div>
+                                SSH User: <span style={{ color: '#34d399' }}>{s.username}</span>
+                              </div>
+                            )}
+                            {s.dnsttNameserver && (
+                              <div>
+                                NS: <span style={{ color: '#34d399' }}>{s.dnsttNameserver}</span>
+                              </div>
+                            )}
+                            {s.dnsttPubkey && (
+                              <div>
+                                Pubkey: <span style={{ color: '#c084fc' }}>{s.dnsttPubkey}</span>
+                              </div>
+                            )}
+                            {s.v2rayUuid && (
+                              <div>
+                                UUID: <span style={{ color: '#c084fc' }}>{s.v2rayUuid}</span>
+                              </div>
+                            )}
+                            {s.v2raySni && (
+                              <div>
+                                SNI: <span style={{ color: '#34d399' }}>{s.v2raySni}</span>
+                              </div>
+                            )}
+                            {s.payload && (
+                              <div>
+                                Payload: <span style={{ color: '#fbbf24' }}>{s.payload}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          </div>
         </div>
 
         {/* DEDICATED PAYMENTS & PROFITS COMMAND CENTER VIEW */}
@@ -3669,15 +3816,14 @@ export default function TweveServerFleetAdmin() {
                                   : 'rgba(56, 189, 248, 0.25)'
                             : 'rgba(15, 23, 42, 0.6)',
                           border: active
-                            ? `1px solid ${
-                                st === 'COMPLETED'
-                                  ? '#10b981'
-                                  : st === 'PENDING'
-                                    ? '#fbbf24'
-                                    : st === 'FAILED'
-                                      ? '#f43f5e'
-                                      : '#38bdf8'
-                              }`
+                            ? `1px solid ${st === 'COMPLETED'
+                              ? '#10b981'
+                              : st === 'PENDING'
+                                ? '#fbbf24'
+                                : st === 'FAILED'
+                                  ? '#f43f5e'
+                                  : '#38bdf8'
+                            }`
                             : '1px solid rgba(56, 189, 248, 0.12)',
                           color: active ? '#ffffff' : '#94a3b8',
                         }}
@@ -3757,11 +3903,11 @@ export default function TweveServerFleetAdmin() {
                     const isPending = ord.status === 'PENDING';
                     const dateFormatted = ord.createdAt
                       ? new Date(ord.createdAt).toLocaleString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
                       : 'Just now';
 
                     return (
@@ -3834,13 +3980,12 @@ export default function TweveServerFleetAdmin() {
                                     ? 'rgba(251, 191, 36, 0.2)'
                                     : 'rgba(244, 63, 94, 0.2)',
                                 color: isCompleted ? '#34d399' : isPending ? '#fcd34d' : '#fb7185',
-                                border: `1px solid ${
-                                  isCompleted
+                                border: `1px solid ${isCompleted
                                     ? 'rgba(16, 185, 129, 0.45)'
                                     : isPending
                                       ? 'rgba(251, 191, 36, 0.45)'
                                       : 'rgba(244, 63, 94, 0.45)'
-                                }`,
+                                  }`,
                               }}
                             >
                               {isCompleted && <Check style={{ width: '0.7rem', height: '0.7rem' }} />}
@@ -4020,6 +4165,151 @@ export default function TweveServerFleetAdmin() {
         {/* DEDICATED APP BROADCAST COMMAND CENTER */}
         {mobileViewTab === 'broadcast' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', width: '100%' }}>
+            {/* App Version Control & Update Dialog Push */}
+            <section className="fleet-card fleet-section-pad">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', paddingBottom: '0.9rem', borderBottom: '1px solid rgba(56, 189, 248, 0.18)' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ffffff', margin: 0 }}>
+                    🚀 App Version Control &amp; Update Dialog
+                  </h2>
+                  <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                    Push a new APK version so older app installs automatically get the Update Dialog with one-tap download
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchAppVersion}
+                  className="btn-fleet-secondary"
+                  style={{ fontSize: '0.74rem' }}
+                >
+                  Reload Version
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveAppVersion} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Latest Version Name
+                    </label>
+                    <input
+                      type="text"
+                      value={appVersionConfig.latest_version_name}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, latest_version_name: e.target.value }))}
+                      placeholder="6.2.4"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Latest Version Code
+                    </label>
+                    <input
+                      type="number"
+                      value={appVersionConfig.latest_version_code}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, latest_version_code: Number(e.target.value || 1) }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Minimum Supported Code
+                    </label>
+                    <input
+                      type="number"
+                      value={appVersionConfig.min_version_code}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, min_version_code: Number(e.target.value || 1) }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Update Button Label
+                    </label>
+                    <input
+                      type="text"
+                      value={appVersionConfig.button_text}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, button_text: e.target.value }))}
+                      placeholder="Update Now"
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      Update Dialog Title
+                    </label>
+                    <input
+                      type="text"
+                      value={appVersionConfig.title}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, title: e.target.value }))}
+                      placeholder="New Version Available"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                      APK Download URL
+                    </label>
+                    <input
+                      type="url"
+                      value={appVersionConfig.update_url}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, update_url: e.target.value }))}
+                      placeholder="https://twevetunnel.deployzy.com/twevetunnel.bin"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
+                    Release Message / Notification to Old Users
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={appVersionConfig.message}
+                    onChange={(e) => setAppVersionConfig((p) => ({ ...p, message: e.target.value }))}
+                    style={{ width: '100%' }}
+                    required
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1.25rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', color: '#e2e8f0', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={appVersionConfig.enabled}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, enabled: e.target.checked }))}
+                    />
+                    <span>Enable Update Check</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', color: '#fbbf24', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={appVersionConfig.force_update}
+                      onChange={(e) => setAppVersionConfig((p) => ({ ...p, force_update: e.target.checked }))}
+                    />
+                    <span>Force Mandatory Update (Non-dismissible)</span>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={savingVersion}
+                    className="btn-fleet-primary"
+                    style={{ marginLeft: 'auto' }}
+                  >
+                    <span>{savingVersion ? 'Publishing...' : 'Publish Version & Notify Old Users'}</span>
+                  </button>
+                </div>
+
+                {versionSaveMsg && (
+                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: versionSaveMsg.startsWith('Error') ? '#f87171' : '#34d399' }}>
+                    {versionSaveMsg}
+                  </div>
+                )}
+              </form>
+            </section>
+
             {/* Live Active Announcement Status Card */}
             <section className="fleet-card fleet-section-pad">
               <div
@@ -4348,6 +4638,289 @@ export default function TweveServerFleetAdmin() {
                       </div>
                     );
                   })
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {mobileViewTab === 'security' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Security KPI Strip */}
+            <section className="glass-panel" style={{ padding: '1.15rem', borderRadius: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.9rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{ padding: '0.5rem', borderRadius: '0.75rem', backgroundColor: 'rgba(239, 68, 68, 0.14)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                    <Shield style={{ width: '1.1rem', height: '1.1rem', color: '#f87171' }} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
+                      Security Issues &amp; Admin Activity Logs
+                    </h2>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                      Full audit trail of admin actions, failed logins, unauthorized API probes, and IP bans
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={fetchSecurityLogs}
+                    style={{
+                      padding: '0.45rem 0.75rem',
+                      borderRadius: '0.65rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                      color: '#38bdf8',
+                      border: '1px solid rgba(56, 189, 248, 0.3)',
+                    }}
+                  >
+                    {securityLoading ? 'Refreshing...' : 'Refresh Logs'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePruneOldLogs}
+                    style={{
+                      padding: '0.45rem 0.75rem',
+                      borderRadius: '0.65rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      backgroundColor: 'rgba(100, 116, 139, 0.15)',
+                      color: '#cbd5e1',
+                      border: '1px solid rgba(148, 163, 184, 0.25)',
+                    }}
+                  >
+                    Prune &gt;7d
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.65rem' }}>
+                <div style={{ padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(148, 163, 184, 0.15)' }}>
+                  <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 700 }}>TOTAL AUDIT EVENTS</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#f8fafc', marginTop: '0.15rem' }}>{securityStats.totalLogs}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
+                  <div style={{ fontSize: '0.68rem', color: '#fca5a5', fontWeight: 700 }}>CRITICAL ALERTS</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#f87171', marginTop: '0.15rem' }}>{securityStats.criticalCount}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                  <div style={{ fontSize: '0.68rem', color: '#fcd34d', fontWeight: 700 }}>WARNINGS</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#fbbf24', marginTop: '0.15rem' }}>{securityStats.warningCount}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                  <div style={{ fontSize: '0.68rem', color: '#6ee7b7', fontWeight: 700 }}>ADMIN ACTIONS</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#34d399', marginTop: '0.15rem' }}>{securityStats.adminActionsCount}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: '0.75rem', backgroundColor: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.25)' }}>
+                  <div style={{ fontSize: '0.68rem', color: '#d8b4fe', fontWeight: 700 }}>ACTIVE IP BANS</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#c084fc', marginTop: '0.15rem' }}>{securityStats.activeBansCount}</div>
+                </div>
+              </div>
+            </section>
+
+            {/* Active & Historical IP Bans */}
+            <section className="glass-panel" style={{ padding: '1.15rem', borderRadius: '1rem' }}>
+              <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 0.75rem 0' }}>
+                Locked &amp; Flagged IPs ({securityBans.length})
+              </h3>
+              {securityBans.length === 0 ? (
+                <div style={{ fontSize: '0.78rem', color: '#64748b', padding: '0.6rem 0' }}>
+                  No IP lockouts or strike records found.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                  {securityBans.map((ban: any) => (
+                    <div
+                      key={ban.key}
+                      style={{
+                        padding: '0.7rem 0.9rem',
+                        borderRadius: '0.75rem',
+                        backgroundColor: 'rgba(3, 7, 18, 0.75)',
+                        border: ban.isActive
+                          ? '1px solid rgba(239, 68, 68, 0.4)'
+                          : '1px solid rgba(148, 163, 184, 0.16)',
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.6rem',
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <span
+                            style={{
+                              padding: '0.15rem 0.45rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.62rem',
+                              fontWeight: 800,
+                              backgroundColor: ban.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(100, 116, 139, 0.2)',
+                              color: ban.isActive ? '#f87171' : '#94a3b8',
+                            }}
+                          >
+                            {ban.isActive ? 'ACTIVE BAN' : 'STRIKE RECORD'}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f8fafc', fontFamily: 'monospace' }}>
+                            {ban.ip}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: '#fbbf24', fontWeight: 700 }}>
+                            {ban.strikes} strikes
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                          Reason: <code style={{ color: '#cbd5e1' }}>{ban.lastReason || 'n/a'}</code>
+                          {ban.isActive && ban.blockedUntil > 0 && (
+                            <> · Unlocks: {new Date(ban.blockedUntil).toLocaleString()}</>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={unbanningKey === ban.key}
+                        onClick={() => handleUnbanIp(ban.key, ban.ip)}
+                        style={{
+                          padding: '0.4rem 0.75rem',
+                          borderRadius: '0.6rem',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                          color: '#34d399',
+                          border: '1px solid rgba(16, 185, 129, 0.35)',
+                        }}
+                      >
+                        {unbanningKey === ban.key ? 'Unbanning...' : 'Unban / Clear'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Filterable Audit & Security Log Stream */}
+            <section className="glass-panel" style={{ padding: '1.15rem', borderRadius: '1rem' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.65rem', marginBottom: '0.85rem' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {['ALL', 'SECURITY_ALERT', 'ADMIN_ACTION', 'AUTH', 'SERVER', 'PAYMENT'].map((cat) => {
+                    const active = securityFilter === cat;
+                    return (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setSecurityFilter(cat)}
+                        style={{
+                          padding: '0.35rem 0.65rem',
+                          borderRadius: '0.55rem',
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          backgroundColor: active ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.75)',
+                          color: active ? '#34d399' : '#94a3b8',
+                          border: active ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(148, 163, 184, 0.16)',
+                        }}
+                      >
+                        {cat.replace('_', ' ')}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="text"
+                  value={securitySearch}
+                  onChange={(e) => setSecuritySearch(e.target.value)}
+                  placeholder="Search email, IP, action, details..."
+                  style={{
+                    padding: '0.45rem 0.75rem',
+                    borderRadius: '0.65rem',
+                    fontSize: '0.75rem',
+                    backgroundColor: 'rgba(3, 7, 18, 0.85)',
+                    color: '#f8fafc',
+                    border: '1px solid rgba(148, 163, 184, 0.22)',
+                    minWidth: '220px',
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '620px', overflowY: 'auto' }}>
+                {securityLogs
+                  .filter((log: any) => {
+                    if (securityFilter !== 'ALL') {
+                      if (securityFilter === 'ADMIN_ACTION') {
+                        if (log.category === 'SECURITY_ALERT') return false;
+                      } else if (log.category !== securityFilter) {
+                        return false;
+                      }
+                    }
+                    if (securitySearch.trim()) {
+                      const q = securitySearch.toLowerCase().trim();
+                      const hay = `${log.action} ${log.actor} ${log.ip} ${log.details} ${log.category}`.toLowerCase();
+                      if (!hay.includes(q)) return false;
+                    }
+                    return true;
+                  })
+                  .map((log: any) => {
+                    const sevColor =
+                      log.severity === 'critical'
+                        ? { bg: 'rgba(239, 68, 68, 0.16)', fg: '#f87171', border: 'rgba(239, 68, 68, 0.35)' }
+                        : log.severity === 'warning'
+                          ? { bg: 'rgba(245, 158, 11, 0.16)', fg: '#fbbf24', border: 'rgba(245, 158, 11, 0.35)' }
+                          : { bg: 'rgba(16, 185, 129, 0.14)', fg: '#34d399', border: 'rgba(16, 185, 129, 0.28)' };
+                    return (
+                      <div
+                        key={log.id}
+                        style={{
+                          padding: '0.7rem 0.85rem',
+                          borderRadius: '0.7rem',
+                          backgroundColor: 'rgba(3, 7, 18, 0.78)',
+                          border: `1px solid ${sevColor.border}`,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.28rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.45rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                            <span
+                              style={{
+                                padding: '0.12rem 0.45rem',
+                                borderRadius: '0.4rem',
+                                fontSize: '0.62rem',
+                                fontWeight: 900,
+                                backgroundColor: sevColor.bg,
+                                color: sevColor.fg,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {log.severity || 'info'}
+                            </span>
+                            <span style={{ fontSize: '0.76rem', fontWeight: 800, color: '#f8fafc', fontFamily: 'monospace' }}>
+                              {log.action}
+                            </span>
+                            <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: 700 }}>
+                              [{log.category}]
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'monospace' }}>
+                            {log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#e2e8f0' }}>{log.details}</div>
+                        <div style={{ fontSize: '0.66rem', color: '#94a3b8', fontFamily: 'monospace', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                          <span>Actor: <strong style={{ color: '#cbd5e1' }}>{log.actor}</strong></span>
+                          <span>IP: <strong style={{ color: '#cbd5e1' }}>{log.ip}</strong></span>
+                          {log.userAgent && <span style={{ color: '#64748b' }}>UA: {log.userAgent.slice(0, 70)}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                {securityLogs.length === 0 && (
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', padding: '1rem 0', textAlign: 'center' }}>
+                    No security or admin activity logs recorded yet. Actions like logins, server edits, and failed probes will appear here automatically.
+                  </div>
                 )}
               </div>
             </section>

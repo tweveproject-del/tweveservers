@@ -61,7 +61,7 @@ export async function getFirebaseAccessToken(): Promise<string | null> {
         iat: now,
         exp: now + 3600,
         scope:
-          'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/userinfo.email',
+          'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.remoteconfig',
       })
     ).toString('base64url');
 

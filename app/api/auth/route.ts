@@ -8,6 +8,7 @@ import {
   SESSION_COOKIE_NAME,
   FIREBASE_RTDB_URL,
 } from '../../lib/auth';
+import { recordSecurityAuditLog } from '../../lib/audit';
 
 export const dynamic = 'force-dynamic';
 
@@ -198,6 +199,16 @@ export async function POST(req: NextRequest) {
     if (currentBan && currentBan.blockedUntil > now) {
       const remainingMs = currentBan.blockedUntil - now;
       const retryAfterSec = Math.ceil(remainingMs / 1000);
+      await recordSecurityAuditLog({
+        req,
+        category: 'SECURITY_ALERT',
+        severity: 'warning',
+        action: 'BLOCKED_IP_LOGIN_ATTEMPT',
+        actor: 'blocked_ip',
+        ip,
+        details: `Blocked IP ${ip} attempted login while locked (${currentBan.strikes} strikes, reason: ${currentBan.lastReason}).`,
+        metadata: { strikes: currentBan.strikes, blockedUntil: currentBan.blockedUntil },
+      });
       return NextResponse.json(
         {
           authenticated: false,
@@ -216,6 +227,16 @@ export async function POST(req: NextRequest) {
     if (currentBan && now - currentBan.lastAttemptAt < 1200) {
       const rec = await recordSecurityStrike(ip, 'rapid_burst_requests', 2);
       if (rec.blockedUntil > now) {
+        await recordSecurityAuditLog({
+          req,
+          category: 'SECURITY_ALERT',
+          severity: 'critical',
+          action: 'RAPID_BURST_LOCKOUT',
+          actor: 'anonymous',
+          ip,
+          details: `IP ${ip} locked due to rapid-fire login burst (${rec.strikes} strikes).`,
+          metadata: { strikes: rec.strikes, blockedUntil: rec.blockedUntil },
+        });
         return NextResponse.json(
           {
             authenticated: false,
@@ -275,6 +296,18 @@ export async function POST(req: NextRequest) {
     ) {
       const weight = hasSuspiciousInjection(email) || hasSuspiciousInjection(password) ? 4 : 1;
       const rec = await recordSecurityStrike(ip, 'missing_or_invalid_credentials_info', weight);
+      if (weight >= 4) {
+        await recordSecurityAuditLog({
+          req,
+          category: 'SECURITY_ALERT',
+          severity: 'critical',
+          action: 'INJECTION_PATTERN_DETECTED',
+          actor: email || 'anonymous',
+          ip,
+          details: `Suspicious injection/payload detected on admin login from ${ip}.`,
+          metadata: { strikes: rec.strikes, blockedUntil: rec.blockedUntil },
+        });
+      }
       if (rec.blockedUntil > now) {
         return NextResponse.json(
           {
@@ -319,6 +352,16 @@ export async function POST(req: NextRequest) {
       }
       if (!human) {
         const rec = await recordSecurityStrike(ip, 'recaptcha_bot_score_failed', 2);
+        await recordSecurityAuditLog({
+          req,
+          category: 'SECURITY_ALERT',
+          severity: rec.blockedUntil > now ? 'critical' : 'warning',
+          action: 'RECAPTCHA_FAILED',
+          actor: email,
+          ip,
+          details: `reCAPTCHA verification failed for ${email} from ${ip} (strikes: ${rec.strikes}).`,
+          metadata: { strikes: rec.strikes, blockedUntil: rec.blockedUntil },
+        });
         return NextResponse.json(
           {
             authenticated: false,
@@ -338,6 +381,19 @@ export async function POST(req: NextRequest) {
     const verifyRes = await verifyAdminCredentials(email, password);
     if (!verifyRes.valid || !verifyRes.email) {
       const rec = await recordSecurityStrike(ip, `invalid_credentials:${email.slice(0, 48)}`, 1);
+      await recordSecurityAuditLog({
+        req,
+        category: 'SECURITY_ALERT',
+        severity: rec.blockedUntil > now ? 'critical' : 'warning',
+        action: rec.blockedUntil > now ? 'IP_LOCKED' : 'ADMIN_LOGIN_FAILED',
+        actor: email,
+        ip,
+        details:
+          rec.blockedUntil > now
+            ? `IP ${ip} locked out after ${rec.strikes} failed login attempts (email: ${email}).`
+            : `Failed admin login attempt for ${email} from ${ip} (strike ${rec.strikes}/3).`,
+        metadata: { strikes: rec.strikes, blockedUntil: rec.blockedUntil },
+      });
       if (rec.blockedUntil > now) {
         return NextResponse.json(
           {
@@ -361,6 +417,16 @@ export async function POST(req: NextRequest) {
 
     // Successful login: clear ban record for this IP
     await clearBanRecord(ip);
+    await recordSecurityAuditLog({
+      req,
+      category: 'AUTH',
+      severity: 'info',
+      action: 'ADMIN_LOGIN',
+      actor: verifyRes.email,
+      ip,
+      details: `Admin ${verifyRes.email} signed in (${verifyRes.authSource || 'firebase'}).`,
+      metadata: { authSource: verifyRes.authSource, role: verifyRes.role },
+    });
     const token = createSessionToken(verifyRes.email);
 
     const res = NextResponse.json({
@@ -383,7 +449,16 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  const auth = await verifyAdminRequest(req);
+  await recordSecurityAuditLog({
+    req,
+    category: 'AUTH',
+    severity: 'info',
+    action: 'ADMIN_LOGOUT',
+    actor: auth.email || 'admin',
+    details: `Admin ${auth.email || 'session'} signed out.`,
+  });
   const res = NextResponse.json({ authenticated: false });
   res.cookies.set(SESSION_COOKIE_NAME, '', {
     httpOnly: true,
