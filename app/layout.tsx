@@ -25,8 +25,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Tweve Tunnel • VPN Server Fleet Control Center',
-  description: 'Independent live server pushing, protocol orchestration, client anti-tamper locking, and real-time fleet analytics for Tweve Tunnel VPN.',
+  title: 'Access Portal',
+  description: 'Restricted interface.',
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+  },
 };
 
 export default function RootLayout({

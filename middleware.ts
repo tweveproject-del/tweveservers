@@ -17,8 +17,8 @@ const SILENT_BLOCK_HEADERS: Record<string, string> = {
   'X-Robots-Tag': 'noindex, nofollow, noarchive',
 };
 
-function blankForbidden(): NextResponse {
-  return new NextResponse(null, { status: 403, headers: SILENT_BLOCK_HEADERS });
+function blankStatus(status = 403): NextResponse {
+  return new NextResponse(null, { status, headers: SILENT_BLOCK_HEADERS });
 }
 
 export function middleware(req: NextRequest) {
@@ -33,14 +33,32 @@ export function middleware(req: NextRequest) {
   })();
 
   if (URL_ATTACK_RE.test(decodedUrl)) {
-    return blankForbidden();
+    return blankStatus(403);
   }
 
   // Always block known AI crawlers, headless automation browsers, and vulnerability scanners
   if (AI_OR_SCANNER_UA_RE.test(ua)) {
-    return blankForbidden();
+    return blankStatus(403);
   }
 
+  // Block direct unauthenticated access to internal admin portal route with blank 404
+  if (pathname.startsWith('/portal')) {
+    const hasSession = Boolean(req.cookies.get('tweve_admin_session')?.value);
+    if (!hasSession) {
+      return blankStatus(404);
+    }
+  }
+
+  // Block direct browser address-bar navigation onto ANY /api/* route (plain blank white response)
+  if (pathname.startsWith('/api/')) {
+    const secFetchMode = (req.headers.get('sec-fetch-mode') || '').toLowerCase();
+    const secFetchDest = (req.headers.get('sec-fetch-dest') || '').toLowerCase();
+    if (secFetchMode === 'navigate' || secFetchDest === 'document') {
+      return blankStatus(404);
+    }
+  }
+
+  const isPaymentWebhook = pathname.startsWith('/api/payments') && req.method === 'POST';
   const isPublicApkApi =
     pathname.startsWith('/api/servers') ||
     pathname.startsWith('/api/analytics') ||
@@ -49,15 +67,22 @@ export function middleware(req: NextRequest) {
 
   const isAndroidClient = /okhttp|dalvik|tweve/i.test(ua);
 
-  // On non-public routes (page HTML, /api/auth, /api/security-logs, /api/app-version),
-  // block raw CLI/script user agents and empty user agents (allow browser navigations & Next static chunks).
+  // On admin/HTML routes, block raw CLI/script UAs and empty UAs
   if (!isPublicApkApi && (!ua.trim() || SCRIPT_UA_RE.test(ua))) {
-    return blankForbidden();
+    return blankStatus(403);
   }
 
-  // Even on public API routes, block raw scraping scripts unless identifying as standard browser or Android APK
-  if (isPublicApkApi && !isAndroidClient && SCRIPT_UA_RE.test(ua)) {
-    return blankForbidden();
+  // On public API routes (except PressoPay server webhooks), block generic scrapers unless native APK
+  if (isPublicApkApi && !isPaymentWebhook && !isAndroidClient && SCRIPT_UA_RE.test(ua)) {
+    return blankStatus(403);
+  }
+
+  // Block cross-site browser JS calls trying to scrape /api/servers from external websites
+  if (pathname.startsWith('/api/servers')) {
+    const secFetchSite = (req.headers.get('sec-fetch-site') || '').toLowerCase();
+    if (secFetchSite === 'cross-site' && !isAndroidClient) {
+      return blankStatus(403);
+    }
   }
 
   return NextResponse.next();

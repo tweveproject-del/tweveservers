@@ -9,10 +9,12 @@ export interface SecurityBanRecord {
   lastReason: string;
   lastAttemptAt: number;
   ip: string;
+  cachedAt?: number;
 }
 
 const memoryBanMap = new Map<string, SecurityBanRecord>();
 const lastAlertLogAt = new Map<string, number>();
+const BAN_CACHE_TTL_MS = 60 * 1000;
 
 export const SILENT_SECURITY_HEADERS: Record<string, string> = {
   'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -71,8 +73,13 @@ export async function getBanRecord(ip: string): Promise<SecurityBanRecord | null
   const cached = memoryBanMap.get(key);
   const now = Date.now();
 
-  if (cached && cached.blockedUntil > now) {
-    return cached;
+  if (cached) {
+    if (cached.blockedUntil > now) {
+      return cached;
+    }
+    if (cached.cachedAt && now - cached.cachedAt < BAN_CACHE_TTL_MS) {
+      return cached.strikes > 0 ? cached : null;
+    }
   }
 
   try {
@@ -91,10 +98,21 @@ export async function getBanRecord(ip: string): Promise<SecurityBanRecord | null
             lastReason: String(data.lastReason || ''),
             lastAttemptAt: Number(data.lastAttemptAt || 0),
             ip,
+            cachedAt: now,
           };
           memoryBanMap.set(key, rec);
           return rec;
         }
+        // Cache clean IP lookup for 60s so high-frequency APK telemetry does not hammer RTDB
+        memoryBanMap.set(key, {
+          strikes: 0,
+          blockedUntil: 0,
+          lastReason: '',
+          lastAttemptAt: 0,
+          ip,
+          cachedAt: now,
+        });
+        return null;
       }
     }
   } catch {
@@ -266,10 +284,12 @@ export function detectAutomatedClient(
     }
     const origin = req.headers.get('origin');
     const host = req.headers.get('host');
-    if (origin && host && req.method !== 'GET') {
+    const forwardedHost = req.headers.get('x-forwarded-host');
+    const allowedHosts = new Set([host, forwardedHost].filter(Boolean));
+    if (origin && allowedHosts.size > 0 && req.method !== 'GET') {
       try {
         const originHost = new URL(origin).host;
-        if (originHost && originHost !== host) {
+        if (originHost && !allowedHosts.has(originHost)) {
           return { blocked: true, reason: `origin_mismatch:${originHost}`, weight: 3 };
         }
       } catch {
