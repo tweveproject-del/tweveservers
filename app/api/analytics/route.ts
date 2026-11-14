@@ -50,10 +50,14 @@ function sanitizeKey(raw: string): string {
     .slice(0, 80);
 }
 
-function formatMbGb(bytes: number): string {
+function formatDataUsage(bytes: number): string {
   const safeBytes = Math.max(0, Number(bytes) || 0);
   const mb = safeBytes / (1024 * 1024);
   const gb = safeBytes / (1024 * 1024 * 1024);
+  const tb = safeBytes / (1024 * 1024 * 1024 * 1024);
+  if (tb >= 1) {
+    return `${tb.toFixed(2)} TB`;
+  }
   if (gb >= 1) {
     return `${gb.toFixed(2)} GB`;
   }
@@ -185,6 +189,7 @@ export async function GET(req: NextRequest) {
       totalBytes: number;
       totalMB: string;
       totalGB: string;
+      totalTB: string;
       formattedTotal: string;
       formattedDown: string;
       formattedUp: string;
@@ -214,9 +219,10 @@ export async function GET(req: NextRequest) {
       totalBytes: bTotal,
       totalMB: (bTotal / (1024 * 1024)).toFixed(2),
       totalGB: (bTotal / (1024 * 1024 * 1024)).toFixed(3),
-      formattedTotal: formatMbGb(bTotal),
-      formattedDown: formatMbGb(bDown),
-      formattedUp: formatMbGb(bUp),
+      totalTB: (bTotal / (1024 * 1024 * 1024 * 1024)).toFixed(3),
+      formattedTotal: formatDataUsage(bTotal),
+      formattedDown: formatDataUsage(bDown),
+      formattedUp: formatDataUsage(bUp),
     };
 
     if (srv.serverId) serverTelemetry[srv.serverId] = entry;
@@ -252,10 +258,10 @@ export async function GET(req: NextRequest) {
         bytesDown: sessDown,
         totalBytesUp: totUp,
         totalBytesDown: totDown,
-        formattedSessionTotal: formatMbGb(sessUp + sessDown),
-        formattedAllTimeTotal: formatMbGb(totUp + totDown),
-        formattedDown: formatMbGb(totDown),
-        formattedUp: formatMbGb(totUp),
+        formattedSessionTotal: formatDataUsage(sessUp + sessDown),
+        formattedAllTimeTotal: formatDataUsage(totUp + totDown),
+        formattedDown: formatDataUsage(totDown),
+        formattedUp: formatDataUsage(totUp),
       };
     });
 
@@ -277,10 +283,11 @@ export async function GET(req: NextRequest) {
       totalDownMB: Number((totalDownBytes / (1024 * 1024)).toFixed(2)),
       totalMB: Number((totalBytes / (1024 * 1024)).toFixed(2)),
       totalGB: Number((totalBytes / (1024 * 1024 * 1024)).toFixed(3)),
-      formattedTotal: formatMbGb(totalBytes),
-      formattedDown: formatMbGb(totalDownBytes),
-      formattedUp: formatMbGb(totalUpBytes),
-      formattedLiveTotal: formatMbGb(liveTotalBytes),
+      totalTB: Number((totalBytes / (1024 * 1024 * 1024 * 1024)).toFixed(3)),
+      formattedTotal: formatDataUsage(totalBytes),
+      formattedDown: formatDataUsage(totalDownBytes),
+      formattedUp: formatDataUsage(totalUpBytes),
+      formattedLiveTotal: formatDataUsage(liveTotalBytes),
     },
     updatedAt: now,
   });
@@ -395,7 +402,7 @@ export async function POST(req: NextRequest) {
       success: true,
       activeUsers: activeCount,
       totalConfiguredUsers: Object.keys(state.devices).length,
-      formattedDeviceTotal: formatMbGb(updatedDevice.totalBytesUp + updatedDevice.totalBytesDown),
+      formattedDeviceTotal: formatDataUsage(updatedDevice.totalBytesUp + updatedDevice.totalBytesDown),
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Telemetry error' }, { status: 500 });

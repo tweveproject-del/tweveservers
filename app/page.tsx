@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Server,
   Shield,
@@ -28,7 +28,7 @@ import {
   Database,
   LogOut,
   X,
-  Menu,
+  MoreVertical,
   DollarSign,
   Wallet,
   CreditCard,
@@ -190,6 +190,7 @@ interface ServerTelemetryEntry {
   totalBytes: number;
   totalMB: string;
   totalGB: string;
+  totalTB?: string;
   formattedTotal: string;
   formattedDown: string;
   formattedUp: string;
@@ -214,6 +215,7 @@ interface FleetAnalytics {
     totalDownMB: number;
     totalMB?: number;
     totalGB?: number;
+    totalTB?: number;
     formattedTotal?: string;
     formattedDown?: string;
     formattedUp?: string;
@@ -390,6 +392,10 @@ export default function TweveServerFleetAdmin() {
 
   // Slide Menu & Navigation Drawer State
   const [isSlideMenuOpen, setIsSlideMenuOpen] = useState(false);
+  const drawerRef = useRef<HTMLDialogElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const sheetRef = useRef<HTMLElement | null>(null);
+  const drawerPhaseRef = useRef<'closed' | 'opening' | 'open' | 'closing'>('closed');
 
   // Payments & Profit Filter / Search State
   const [paymentFilterStatus, setPaymentFilterStatus] = useState<'ALL' | 'COMPLETED' | 'PENDING' | 'FAILED'>('ALL');
@@ -732,16 +738,147 @@ export default function TweveServerFleetAdmin() {
     }
   };
 
-  // Close slide menu on Escape key
+  const openDrawer = useCallback(async () => {
+    const drawer = drawerRef.current;
+    const scroller = scrollerRef.current;
+    if (!drawer || !scroller) return;
+    drawerPhaseRef.current = 'opening';
+    if (!drawer.open) {
+      drawer.showModal();
+    }
+    setIsSlideMenuOpen(true);
+
+    if (typeof CSS !== 'undefined' && (!CSS.supports('scroll-initial-target', 'nearest') || scroller.scrollLeft === 0)) {
+      scroller.scrollTo({ left: scroller.offsetWidth, behavior: 'instant' as ScrollBehavior });
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+    }
+
+    if (drawer.open && drawerPhaseRef.current === 'opening') {
+      scroller.scrollTo({ left: 0, behavior: 'auto' });
+      window.setTimeout(() => {
+        if (drawerPhaseRef.current === 'opening') {
+          drawerPhaseRef.current = 'open';
+        }
+      }, 450);
+    }
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    const drawer = drawerRef.current;
+    const scroller = scrollerRef.current;
+    if (!drawer?.open) {
+      drawerPhaseRef.current = 'closed';
+      setIsSlideMenuOpen(false);
+      return;
+    }
+    drawerPhaseRef.current = 'closing';
+    if (!scroller || scroller.offsetWidth === 0) {
+      drawer.close();
+      drawerPhaseRef.current = 'closed';
+      setIsSlideMenuOpen(false);
+      return;
+    }
+    scroller.scrollTo({ left: scroller.offsetWidth, behavior: 'auto' });
+  }, []);
+
+  // Sync modal <dialog> drawer state via IntersectionObserver, backdrop click, Escape cancel, and scroll fallback
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isSlideMenuOpen) {
-        setIsSlideMenuOpen(false);
+    if (!isAuthenticated) return;
+    const drawer = drawerRef.current;
+    const scroller = scrollerRef.current;
+    const sheet = sheetRef.current;
+    if (!drawer || !scroller || !sheet) return;
+
+    const onDrawerOpened = () => {
+      drawerPhaseRef.current = 'open';
+      setIsSlideMenuOpen(true);
+    };
+    const onDrawerClosed = () => {
+      drawerPhaseRef.current = 'closed';
+      if (drawer.open) drawer.close();
+      setIsSlideMenuOpen(false);
+    };
+
+    const visibleThreshold = 1 / Math.max(1, window.innerWidth);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[entries.length - 1];
+        if (!entry) return;
+        if (entry.intersectionRatio >= 0.99) {
+          onDrawerOpened();
+        } else if (
+          entry.intersectionRatio < visibleThreshold &&
+          drawer.open &&
+          drawerPhaseRef.current !== 'opening'
+        ) {
+          onDrawerClosed();
+        }
+      },
+      { root: drawer, threshold: [visibleThreshold, 0.99, 1] }
+    );
+    observer.observe(sheet);
+
+    const handleDialogClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !sheet.contains(event.target)) {
+        closeDrawer();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSlideMenuOpen]);
+
+    const handleDialogCancel = (event: Event) => {
+      if (event.cancelable) {
+        event.preventDefault();
+        closeDrawer();
+      }
+    };
+
+    const handleDialogClose = () => {
+      drawerPhaseRef.current = 'closed';
+      setIsSlideMenuOpen(false);
+    };
+
+    const supportsScrollTimeline =
+      typeof CSS !== 'undefined' && CSS.supports('animation-timeline: scroll()');
+    const handleScrollBackdrop = () => {
+      const sheetW = sheet.offsetWidth;
+      if (sheetW > 0) {
+        const ratio = Math.max(0, Math.min(1, 1 - scroller.scrollLeft / sheetW));
+        drawer.style.setProperty('--drawer-backdrop', ratio.toString());
+      }
+    };
+
+    drawer.addEventListener('click', handleDialogClick);
+    drawer.addEventListener('cancel', handleDialogCancel);
+    drawer.addEventListener('close', handleDialogClose);
+    if (!supportsScrollTimeline) {
+      scroller.addEventListener('scroll', handleScrollBackdrop, { passive: true });
+    }
+
+    return () => {
+      observer.disconnect();
+      drawer.removeEventListener('click', handleDialogClick);
+      drawer.removeEventListener('cancel', handleDialogCancel);
+      drawer.removeEventListener('close', handleDialogClose);
+      if (!supportsScrollTimeline) {
+        scroller.removeEventListener('scroll', handleScrollBackdrop);
+      }
+    };
+  }, [isAuthenticated, closeDrawer]);
+
+  const formatTrafficBytes = (bytes: number): string => {
+    const safeBytes = Math.max(0, Number(bytes) || 0);
+    const mb = safeBytes / (1024 * 1024);
+    const gb = safeBytes / (1024 * 1024 * 1024);
+    const tb = safeBytes / (1024 * 1024 * 1024 * 1024);
+    if (tb >= 1) return `${tb.toFixed(2)} TB`;
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    return `${mb.toFixed(2)} MB`;
+  };
+
+  const formatTrafficMB = (mbVal: number): string => {
+    return formatTrafficBytes(Math.max(0, Number(mbVal) || 0) * 1024 * 1024);
+  };
 
   // Financial & Profit Calculations
   const completedOrders = paymentOrders.filter(
@@ -1507,368 +1644,376 @@ export default function TweveServerFleetAdmin() {
 
   return (
     <div style={{ minHeight: '100dvh', backgroundColor: '#020617', color: '#f8fafc' }}>
-      {/* Slide Menu Backdrop */}
-      <div
-        className={`slide-menu-backdrop ${isSlideMenuOpen ? 'open' : ''}`}
-        onClick={() => setIsSlideMenuOpen(false)}
-      />
-
-      {/* Slide-in Navigation Drawer */}
-      <aside className={`slide-menu-drawer ${isSlideMenuOpen ? 'open' : ''}`}>
-        {/* Drawer Header */}
-        <div
-          style={{
-            padding: '1.15rem 1.1rem',
-            borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: 'rgba(3, 7, 18, 0.65)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+      {/* Top-Layer Swipeable Navigation Drawer */}
+      <dialog
+        ref={drawerRef}
+        id="drawer"
+        className="Drawer"
+        aria-label="Navigation drawer"
+      >
+        <div ref={scrollerRef} className="Drawer-scroller">
+          <nav
+            ref={sheetRef}
+            className="Drawer-sheet"
+            aria-label="Admin sections"
+          >
+            {/* Drawer Header */}
             <div
               style={{
-                width: '2.25rem',
-                height: '2.25rem',
-                borderRadius: '0.65rem',
-                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.25) 100%)',
-                border: '1px solid rgba(16, 185, 129, 0.5)',
+                padding: '1.05rem 1.05rem',
+                borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                color: '#34d399',
+                justifyContent: 'space-between',
+                background: 'rgba(3, 7, 18, 0.65)',
               }}
             >
-              <Flame style={{ width: '1.25rem', height: '1.25rem' }} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
-                TWEVE FLEET
-              </h2>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.1rem' }}>
-                <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: '#10b981', display: 'inline-block' }} />
-                <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Admin Console</span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsSlideMenuOpen(false)}
-            style={{
-              padding: '0.4rem',
-              borderRadius: '0.5rem',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              background: 'rgba(255, 255, 255, 0.05)',
-            }}
-            title="Close menu"
-          >
-            <X style={{ width: '1.1rem', height: '1.1rem' }} />
-          </button>
-        </div>
-
-        {/* Live Profits Card inside Drawer */}
-        <div style={{ padding: '0.95rem 1rem' }}>
-          <div
-            onClick={() => {
-              setMobileViewTab('payments');
-              setIsSlideMenuOpen(false);
-            }}
-            style={{
-              padding: '0.85rem 1rem',
-              borderRadius: '0.85rem',
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(6, 182, 212, 0.12) 100%)',
-              border: '1px solid rgba(16, 185, 129, 0.45)',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Total Net Profits
-              </span>
-              <DollarSign style={{ width: '0.95rem', height: '0.95rem', color: '#34d399' }} />
-            </div>
-            <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
-              <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
-                {totalProfitTzs.toLocaleString()}
-              </span>
-              <span style={{ fontSize: '0.72rem', color: '#6ee7b7', fontWeight: 700 }}>TZS</span>
-            </div>
-            <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.15rem' }}>
-              {completedOrders.length} completed transactions · Tap to view
-            </div>
-          </div>
-        </div>
-
-        {/* Slide Menu Navigation Items */}
-        <div style={{ padding: '0 0.85rem', display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1 }}>
-          <div style={{ padding: '0.35rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Navigation & Options
-          </div>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'deploy' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('deploy');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <PlusCircle style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} />
-              <div>
-                <div>{editingServerId ? 'Edit VPN Node' : 'Deploy / Add Server'}</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  15 Protocols, Credentials, Expiration
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div
+                  style={{
+                    width: '2.25rem',
+                    height: '2.25rem',
+                    borderRadius: '0.65rem',
+                    background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.25) 100%)',
+                    border: '1px solid rgba(16, 185, 129, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#34d399',
+                  }}
+                >
+                  <Flame style={{ width: '1.25rem', height: '1.25rem' }} aria-hidden="true" />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.02em' }}>
+                    TWEVE FLEET
+                  </h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.1rem' }}>
+                    <span style={{ width: '0.45rem', height: '0.45rem', borderRadius: '9999px', backgroundColor: '#10b981', display: 'inline-block' }} />
+                    <span style={{ fontSize: '0.68rem', color: '#94a3b8' }}>Admin Console</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
 
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'fleet' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('fleet');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Server style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} />
-              <div>
-                <div>Server Fleet Nodes</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Manage, Lock, User counts, MB/GB used
+              <button
+                type="button"
+                id="drawer-close"
+                autoFocus
+                onClick={closeDrawer}
+                style={{
+                  padding: '0.4rem',
+                  borderRadius: '0.5rem',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close menu"
+                title="Close menu"
+              >
+                <X style={{ width: '1.1rem', height: '1.1rem' }} aria-hidden="true" />
+              </button>
+            </div>
+
+            {/* Scrollable Body: Profits Card + Navigation Options */}
+            <div style={{ padding: '0.85rem 0.9rem', display: 'flex', flexDirection: 'column', gap: '0.45rem', overflowY: 'auto' }}>
+              {/* Live Profits Card inside Drawer */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setMobileViewTab('payments');
+                  closeDrawer();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setMobileViewTab('payments');
+                    closeDrawer();
+                  }
+                }}
+                style={{
+                  padding: '0.85rem 1rem',
+                  marginBottom: '0.45rem',
+                  borderRadius: '0.85rem',
+                  background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.18) 0%, rgba(6, 182, 212, 0.12) 100%)',
+                  border: '1px solid rgba(16, 185, 129, 0.45)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Total Net Profits
+                  </span>
+                  <DollarSign style={{ width: '0.95rem', height: '0.95rem', color: '#34d399' }} aria-hidden="true" />
+                </div>
+                <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace' }}>
+                    {totalProfitTzs.toLocaleString()}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: '#6ee7b7', fontWeight: 700 }}>TZS</span>
+                </div>
+                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                  {completedOrders.length} completed transactions · Tap to view
                 </div>
               </div>
+
+              <div style={{ padding: '0.25rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Navigation &amp; Options
+              </div>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'fleet' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('fleet');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Server style={{ width: '1.05rem', height: '1.05rem', color: '#34d399' }} aria-hidden="true" />
+                  <div>
+                    <div>Server Fleet Nodes</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Manage, Lock, User counts, MB/GB/TB used
+                    </div>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '0.35rem',
+                    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                    color: '#34d399',
+                  }}
+                >
+                  {servers.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'deploy' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('deploy');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <PlusCircle style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} aria-hidden="true" />
+                  <div>
+                    <div>{editingServerId ? 'Edit VPN Node' : 'Deploy / Add Server'}</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      15 Protocols, Credentials, Expiration
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'payments' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('payments');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <DollarSign style={{ width: '1.05rem', height: '1.05rem', color: '#fcd34d' }} aria-hidden="true" />
+                  <div>
+                    <div>Payments Done &amp; Profits</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Revenue accounting, orders, access keys
+                    </div>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '0.35rem',
+                    backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                    color: '#fcd34d',
+                  }}
+                >
+                  {completedOrders.length} Paid
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'version' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('version');
+                  closeDrawer();
+                  fetchAppVersion();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Rocket style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} aria-hidden="true" />
+                  <div>
+                    <div>App Version Control</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Push APK updates &amp; force update dialog
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'broadcast' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('broadcast');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Megaphone style={{ width: '1.05rem', height: '1.05rem', color: '#ec4899' }} aria-hidden="true" />
+                  <div>
+                    <div>Broadcast Announcement</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Instant popup alert to all client apps
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'telemetry' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('telemetry');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Activity style={{ width: '1.05rem', height: '1.05rem', color: '#a78bfa' }} aria-hidden="true" />
+                  <div>
+                    <div>Telemetry &amp; Bandwidth</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Connected users, MB/GB/TB used, active nodes
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                className={`slide-menu-item ${mobileViewTab === 'security' ? 'active' : ''}`}
+                onClick={() => {
+                  setMobileViewTab('security');
+                  closeDrawer();
+                  fetchSecurityLogs();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Shield style={{ width: '1.05rem', height: '1.05rem', color: '#f87171' }} aria-hidden="true" />
+                  <div>
+                    <div>Security &amp; Audit Logs</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Admin activities, IP bans, security alerts
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} aria-hidden="true" />
+              </button>
+
+              <div style={{ padding: '0.65rem 0.5rem 0.25rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Fleet Maintenance
+              </div>
+
+              <button
+                type="button"
+                className="slide-menu-item"
+                onClick={() => {
+                  fetchServers();
+                  fetchAnalytics();
+                  fetchPaymentsAdmin();
+                  notify('success', 'Synchronized live servers, bandwidth & payment orders!');
+                  closeDrawer();
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <RefreshCw style={{ width: '1.05rem', height: '1.05rem', color: '#22d3ee' }} aria-hidden="true" />
+                  <div>
+                    <div>Sync &amp; Refresh All</div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
+                      Reload servers, metrics &amp; payments
+                    </div>
+                  </div>
+                </div>
+              </button>
             </div>
-            <span
+
+            {/* Drawer Footer with Admin Email & Logout */}
+            <div
               style={{
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                padding: '0.1rem 0.45rem',
-                borderRadius: '0.35rem',
-                backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                color: '#34d399',
+                padding: '0.95rem 1.05rem',
+                borderTop: '1px solid rgba(56, 189, 248, 0.16)',
+                background: 'rgba(2, 6, 23, 0.85)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
               }}
             >
-              {servers.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'payments' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('payments');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <DollarSign style={{ width: '1.05rem', height: '1.05rem', color: '#fcd34d' }} />
-              <div>
-                <div>Payments Done & Profits</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Revenue accounting, orders, access keys
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Signed in as</div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {adminEmail}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  closeDrawer();
+                  handleLogout();
+                }}
+                className="btn-fleet-secondary"
+                style={{ padding: '0.4rem 0.65rem', color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.3)', flexShrink: 0 }}
+              >
+                <LogOut style={{ width: '0.85rem', height: '0.85rem' }} aria-hidden="true" />
+                <span>Sign Out</span>
+              </button>
             </div>
-            <span
-              style={{
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                padding: '0.1rem 0.45rem',
-                borderRadius: '0.35rem',
-                backgroundColor: 'rgba(251, 191, 36, 0.2)',
-                color: '#fcd34d',
-              }}
-            >
-              {completedOrders.length} Paid
-            </span>
-          </button>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'version' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('version');
-              setIsSlideMenuOpen(false);
-              fetchAppVersion();
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Rocket style={{ width: '1.05rem', height: '1.05rem', color: '#38bdf8' }} />
-              <div>
-                <div>App Version Control</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Push APK updates &amp; force update dialog
-                </div>
-              </div>
-            </div>
-            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'broadcast' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('broadcast');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Megaphone style={{ width: '1.05rem', height: '1.05rem', color: '#ec4899' }} />
-              <div>
-                <div>Broadcast Announcement</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Instant popup alert to all client apps
-                </div>
-              </div>
-            </div>
-            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'telemetry' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('telemetry');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Activity style={{ width: '1.05rem', height: '1.05rem', color: '#a78bfa' }} />
-              <div>
-                <div>Telemetry & Bandwidth</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Connected users, MB/GB used, active nodes
-                </div>
-              </div>
-            </div>
-            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
-
-          <button
-            type="button"
-            className={`slide-menu-item ${mobileViewTab === 'security' ? 'active' : ''}`}
-            onClick={() => {
-              setMobileViewTab('security');
-              setIsSlideMenuOpen(false);
-              fetchSecurityLogs();
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <Shield style={{ width: '1.05rem', height: '1.05rem', color: '#f87171' }} />
-              <div>
-                <div>Security & Audit Logs</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Admin activities, IP bans, security alerts
-                </div>
-              </div>
-            </div>
-            <ChevronRight style={{ width: '0.85rem', height: '0.85rem', color: '#64748b' }} />
-          </button>
-
-          <div style={{ padding: '0.75rem 0.5rem 0.25rem', fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Fleet Maintenance
-          </div>
-
-          <button
-            type="button"
-            className="slide-menu-item"
-            onClick={() => {
-              fetchServers();
-              fetchAnalytics();
-              fetchPaymentsAdmin();
-              notify('success', 'Synchronized live servers, bandwidth & payment orders!');
-              setIsSlideMenuOpen(false);
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <RefreshCw style={{ width: '1.05rem', height: '1.05rem', color: '#22d3ee' }} />
-              <div>
-                <div>Sync & Refresh All</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>
-                  Reload servers, metrics & payments
-                </div>
-              </div>
-            </div>
-          </button>
+          </nav>
         </div>
-
-        {/* Drawer Footer with Admin Email & Logout */}
-        <div
-          style={{
-            padding: '1rem 1.15rem',
-            borderTop: '1px solid rgba(56, 189, 248, 0.16)',
-            background: 'rgba(2, 6, 23, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '0.5rem',
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Signed in as</div>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {adminEmail}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setIsSlideMenuOpen(false);
-              handleLogout();
-            }}
-            className="btn-fleet-secondary"
-            style={{ padding: '0.4rem 0.65rem', color: '#fb7185', borderColor: 'rgba(244, 63, 94, 0.3)' }}
-          >
-            <LogOut style={{ width: '0.85rem', height: '0.85rem' }} />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
+      </dialog>
 
       {/* Sticky Top Header */}
-      <header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          backdropFilter: 'blur(16px)',
-          backgroundColor: 'rgba(2, 6, 23, 0.9)',
-          borderBottom: '1px solid rgba(56, 189, 248, 0.16)',
-        }}
-      >
+      <header className="fleet-header">
         <div className="fleet-header-inner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
-            {/* Hamburger Slide Menu Trigger Button */}
+          <div className="fleet-header-left">
+            {/* Three Vertical Dots Slide Menu Trigger (No "Menu" word for clean mobile look) */}
             <button
               type="button"
-              onClick={() => setIsSlideMenuOpen(true)}
-              className="btn-fleet-secondary"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.45rem 0.75rem',
-                borderColor: 'rgba(56, 189, 248, 0.35)',
-                background: 'rgba(15, 23, 42, 0.8)',
-              }}
+              id="drawer-open"
+              onClick={openDrawer}
+              className="header-dots-btn"
+              aria-label="Open navigation menu"
+              aria-expanded={isSlideMenuOpen}
+              aria-controls="drawer"
               title="Open Navigation Menu"
             >
-              <Menu style={{ width: '1.15rem', height: '1.15rem', color: '#22d3ee' }} />
-              <span style={{ fontWeight: 700, fontSize: '0.78rem' }}>Menu</span>
+              <MoreVertical style={{ width: '1.25rem', height: '1.25rem' }} aria-hidden="true" />
             </button>
 
             <div
+              className="fleet-header-brand-icon"
               style={{
-                width: '2.4rem',
-                height: '2.4rem',
+                width: '2.35rem',
+                height: '2.35rem',
                 borderRadius: '0.75rem',
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(6, 182, 212, 0.22))',
                 border: '1px solid rgba(16, 185, 129, 0.45)',
@@ -1879,29 +2024,28 @@ export default function TweveServerFleetAdmin() {
                 boxShadow: '0 0 20px rgba(16, 185, 129, 0.22)',
               }}
             >
-              <Flame style={{ width: '1.3rem', height: '1.3rem', color: '#34d399' }} />
+              <Flame style={{ width: '1.25rem', height: '1.25rem', color: '#34d399' }} aria-hidden="true" />
             </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <h1 style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
-                  TWEVE SERVER FLEET
-                </h1>
-              </div>
-              <p style={{ fontSize: '0.7rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <h1 style={{ fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
+                TWEVE SERVER FLEET
+              </h1>
+              <p className="hide-on-xs" style={{ fontSize: '0.7rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 Admin: <strong style={{ color: '#38bdf8' }}>{adminEmail}</strong>
               </p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+          <div className="fleet-header-actions">
             {/* Quick Profit Pill in Header */}
-            <div
+            <button
+              type="button"
               onClick={() => setMobileViewTab('payments')}
               style={{
                 cursor: 'pointer',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.45rem',
+                gap: '0.38rem',
                 padding: '0.35rem 0.65rem',
                 borderRadius: '0.65rem',
                 background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.12) 100%)',
@@ -1911,17 +2055,22 @@ export default function TweveServerFleetAdmin() {
               }}
               title="Click to view full Payments & Profits ledger"
             >
-              <DollarSign style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} />
-              <span style={{ color: '#94a3b8' }}>Profits:</span>
+              <DollarSign style={{ width: '0.85rem', height: '0.85rem', color: '#34d399' }} aria-hidden="true" />
+              <span className="hide-on-xs" style={{ color: '#94a3b8' }}>Profits:</span>
               <strong style={{ color: '#34d399', fontWeight: 800 }}>
                 {totalProfitTzs.toLocaleString()} TZS
               </strong>
-            </div>
+            </button>
 
-
-            <button type="button" onClick={handleLogout} className="btn-fleet-secondary">
-              <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} />
-              <span>Exit</span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="btn-fleet-secondary"
+              aria-label="Sign out"
+              style={{ padding: '0.38rem 0.65rem' }}
+            >
+              <LogOut style={{ width: '0.85rem', height: '0.85rem', color: '#fb7185' }} aria-hidden="true" />
+              <span className="hide-on-xs">Exit</span>
             </button>
           </div>
         </div>
@@ -2006,69 +2155,43 @@ export default function TweveServerFleetAdmin() {
           <div className="kpi-stat-box">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Total Data (MB / GB)
+                Total Data (MB / GB / TB)
               </span>
-              <Activity style={{ width: '0.95rem', height: '0.95rem', color: '#fbbf24' }} />
+              <Activity style={{ width: '0.95rem', height: '0.95rem', color: '#fbbf24' }} aria-hidden="true" />
             </div>
-            <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.45rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '1.45rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
-                {analytics.bandwidth.formattedTotal ||
-                  ((Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0))) >= 1024)
-                    ? `${((Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0)))) / 1024).toFixed(2)} GB`
-                    : `${Number(analytics.bandwidth.totalMB ?? (Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0))).toFixed(2)} MB`)}
-              </span>
-              <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>
-                ({Number(analytics.bandwidth.totalGB ?? ((Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0)) / 1024)).toFixed(3)} GB)
-              </span>
-            </div>
-            <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.65rem', fontSize: '0.68rem', fontFamily: 'monospace', flexWrap: 'wrap' }}>
-              <span style={{ color: '#34d399' }}>
-                ↓ {analytics.bandwidth.formattedDown || `${Number(analytics.bandwidth.totalDownMB || 0).toFixed(2)} MB`}
-              </span>
-              <span style={{ color: '#38bdf8' }}>
-                ↑ {analytics.bandwidth.formattedUp || `${Number(analytics.bandwidth.totalUpMB || 0).toFixed(2)} MB`}
-              </span>
-            </div>
+            {(() => {
+              const fallbackTotalMB = Number(
+                analytics.bandwidth.totalMB ??
+                  Number(analytics.bandwidth.totalDownMB || 0) + Number(analytics.bandwidth.totalUpMB || 0)
+              );
+              const resolvedBytes = Number(analytics.bandwidth.totalBytes ?? fallbackTotalMB * 1024 * 1024);
+              const resolvedGB = Number(analytics.bandwidth.totalGB ?? resolvedBytes / (1024 * 1024 * 1024));
+              const resolvedTB = Number(analytics.bandwidth.totalTB ?? resolvedBytes / (1024 * 1024 * 1024 * 1024));
+              return (
+                <>
+                  <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'baseline', gap: '0.45rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '1.45rem', fontWeight: 800, color: '#fcd34d', fontFamily: 'monospace' }}>
+                      {analytics.bandwidth.formattedTotal || formatTrafficBytes(resolvedBytes)}
+                    </span>
+                    <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                      {resolvedTB >= 1 ? `(${resolvedTB.toFixed(3)} TB)` : `(${resolvedGB.toFixed(3)} GB)`}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.65rem', fontSize: '0.68rem', fontFamily: 'monospace', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#34d399' }}>
+                      ↓ {analytics.bandwidth.formattedDown || formatTrafficMB(Number(analytics.bandwidth.totalDownMB || 0))}
+                    </span>
+                    <span style={{ color: '#38bdf8' }}>
+                      ↑ {analytics.bandwidth.formattedUp || formatTrafficMB(Number(analytics.bandwidth.totalUpMB || 0))}
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
 
-        {/* Sticky Mobile & Tablet View Switcher */}
-        <nav className="fleet-mobile-tabs">
-          {[
-            { id: 'fleet', label: `🌐 Fleet (${servers.length})` },
-            { id: 'deploy', label: editingServerId ? '✏️ Edit Node' : '➕ Deploy' },
-            { id: 'payments', label: `💰 Profits (${totalProfitTzs > 0 ? (totalProfitTzs >= 1000 ? (totalProfitTzs / 1000).toFixed(0) + 'k' : totalProfitTzs) : '0'})` },
-            { id: 'broadcast', label: '📢 Notice' },
-            { id: 'version', label: `📲 v${appVersionConfig.latest_version_name || '6.2.4'}` },
-            { id: 'telemetry', label: '📊 Telemetry' },
-            { id: 'security', label: `🛡️ Security${securityStats.criticalCount + securityStats.activeBansCount > 0 ? ` (${securityStats.criticalCount + securityStats.activeBansCount})` : ''}` },
-          ].map((tab) => {
-            const active = mobileViewTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setMobileViewTab(tab.id as any)}
-                style={{
-                  padding: '0.5rem 0.35rem',
-                  borderRadius: '0.65rem',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  background: active
-                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                    : 'transparent',
-                  color: active ? '#ffffff' : '#94a3b8',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Main Responsive Workspace: 2-Column Split on PC, Adaptive on Tablet/Phone */}
+        {/* Main Responsive Workspace */}
         <div className="fleet-workspace-grid">
           {/* LEFT COLUMN: Quick Import + Server Deployment Suite */}
           <div
@@ -2088,7 +2211,7 @@ export default function TweveServerFleetAdmin() {
                     Quick URI Auto-Fill:
                   </span>
                 </div>
-                <div style={{ display: 'flex', flex: 1, gap: '0.5rem', minWidth: '220px' }}>
+                <div style={{ display: 'flex', flex: 1, gap: '0.5rem', minWidth: 'min(220px, 100%)' }}>
                   <input
                     type="text"
                     value={rawPasteInput}
@@ -3682,7 +3805,7 @@ export default function TweveServerFleetAdmin() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
                   gap: '0.85rem',
                   marginTop: '1.15rem',
                 }}
@@ -3784,7 +3907,7 @@ export default function TweveServerFleetAdmin() {
                 }}
               >
                 {/* Search Input */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '220px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 'min(220px, 100%)' }}>
                   <Search style={{ width: '0.95rem', height: '0.95rem', color: '#94a3b8' }} />
                   <input
                     type="text"
@@ -4255,7 +4378,7 @@ export default function TweveServerFleetAdmin() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(240px, 100%), 1fr))', gap: '0.75rem' }}>
                   <div>
                     <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>
                       Update Dialog Title
@@ -4522,7 +4645,7 @@ export default function TweveServerFleetAdmin() {
                     type="button"
                     onClick={handleSaveAnnouncement}
                     className="btn-fleet-primary"
-                    style={{ flex: 1, minWidth: '220px', justifyContent: 'center' }}
+                    style={{ flex: 1, minWidth: 'min(220px, 100%)', justifyContent: 'center' }}
                   >
                     <Send style={{ width: '0.95rem', height: '0.95rem' }} />
                     <span>Publish / Update Broadcast to All Apps</span>
@@ -4607,10 +4730,10 @@ export default function TweveServerFleetAdmin() {
                 ) : (
                   analytics.liveSampledSessions.slice(0, 30).map((sess) => {
                     const isOnline = sess.status === 'connected' || (Date.now() - sess.lastPing <= 90000 && sess.status !== 'offline');
-                    const sessTotalBytes = (Number(sess.totalBytesDown ?? sess.bytesDown) || 0) + (Number(sess.totalBytesUp ?? sess.bytesUp) || 0);
-                    const sessTotalMB = sessTotalBytes / (1024 * 1024);
-                    const sessTotalGB = sessTotalBytes / (1024 * 1024 * 1024);
-                    const displayTotal = sess.formattedAllTimeTotal || (sessTotalGB >= 1 ? `${sessTotalGB.toFixed(2)} GB` : `${sessTotalMB.toFixed(2)} MB`);
+                    const sessDownBytes = Number(sess.totalBytesDown ?? sess.bytesDown) || 0;
+                    const sessUpBytes = Number(sess.totalBytesUp ?? sess.bytesUp) || 0;
+                    const sessTotalBytes = sessDownBytes + sessUpBytes;
+                    const displayTotal = sess.formattedAllTimeTotal || formatTrafficBytes(sessTotalBytes);
                     return (
                       <div
                         key={sess.deviceId}
@@ -4649,15 +4772,15 @@ export default function TweveServerFleetAdmin() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.72rem', fontFamily: 'monospace' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.72rem', fontFamily: 'monospace', flexWrap: 'wrap' }}>
                           <span style={{ color: '#fbbf24', fontWeight: 800 }}>
                             {displayTotal}
                           </span>
                           <span style={{ color: '#34d399' }}>
-                            ↓{sess.formattedDown || `${((Number(sess.totalBytesDown ?? sess.bytesDown) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                            ↓{sess.formattedDown || formatTrafficBytes(sessDownBytes)}
                           </span>
                           <span style={{ color: '#38bdf8' }}>
-                            ↑{sess.formattedUp || `${((Number(sess.totalBytesUp ?? sess.bytesUp) || 0) / (1024 * 1024)).toFixed(2)} MB`}
+                            ↑{sess.formattedUp || formatTrafficBytes(sessUpBytes)}
                           </span>
                         </div>
                       </div>
@@ -4865,7 +4988,7 @@ export default function TweveServerFleetAdmin() {
                     backgroundColor: 'rgba(3, 7, 18, 0.85)',
                     color: '#f8fafc',
                     border: '1px solid rgba(148, 163, 184, 0.22)',
-                    minWidth: '220px',
+                    minWidth: 'min(220px, 100%)',
                   }}
                 />
               </div>
