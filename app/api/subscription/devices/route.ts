@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSubscriptionByKey, saveSubscription } from '../../../lib/pressopay';
+import { enforceApiSecurity } from '../../../lib/security';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -12,6 +13,9 @@ export async function OPTIONS() {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'public_api' });
+  if (blocked) return blocked;
+
   try {
     const apiKey = (req.headers.get('x-api-key') || '').trim().toUpperCase();
     if (!apiKey) {
@@ -69,6 +73,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'public_api' });
+  if (blocked) return blocked;
+
   try {
     const apiKey = (req.headers.get('x-api-key') || '').trim().toUpperCase();
     if (!apiKey) {

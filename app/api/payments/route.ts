@@ -18,6 +18,11 @@ import {
   FIREBASE_RTDB_URL,
 } from '../../lib/auth';
 import { recordSecurityAuditLog } from '../../lib/audit';
+import {
+  enforceApiSecurity,
+  handleUnauthorizedAdminProbe,
+  SILENT_SECURITY_HEADERS,
+} from '../../lib/security';
 import { VpnServerItem, PaymentOrderRecord } from '../../lib/types';
 
 function getClientIp(req: NextRequest): string {
@@ -67,8 +72,8 @@ async function readServersFromDb(): Promise<VpnServerItem[]> {
         return list as VpnServerItem[];
       }
     }
-  } catch (err) {
-    console.error('Error reading servers for payment:', err);
+  } catch {
+    // ignore read failure
   }
   return [];
 }
@@ -90,22 +95,15 @@ export async function GET(req: NextRequest) {
   const lookup =
     searchParams.get('lookup') || searchParams.get('phone') || searchParams.get('key');
 
+  const blocked = await enforceApiSecurity(req, {
+    scope: mode === 'admin' ? 'browser_only' : 'public_api',
+  });
+  if (blocked) return blocked;
+
   if (mode === 'admin') {
     const auth = await verifyAdminRequest(req);
     if (!auth.valid) {
-      await recordSecurityAuditLog({
-        req,
-        category: 'SECURITY_ALERT',
-        severity: 'critical',
-        action: 'UNAUTHORIZED_ACCESS',
-        actor: 'anonymous',
-        details: 'Unauthorized GET attempt to /api/payments?mode=admin.',
-        metadata: { method: 'GET', path: '/api/payments?mode=admin' },
-      });
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin login required' },
-        { status: 401, headers: CORS_HEADERS }
-      );
+      return await handleUnauthorizedAdminProbe(req, 'GET /api/payments?mode=admin');
     }
 
     const [gateway, rawOrders] = await Promise.all([
@@ -341,6 +339,9 @@ export async function GET(req: NextRequest) {
  * - Secret key (`sk_...`) is loaded strictly from the private Firebase server database.
  */
 export async function POST(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'public_api' });
+  if (blocked) return blocked;
+
   try {
     const ip = getClientIp(req);
     if (!checkPaymentRateLimit(ip)) {
@@ -519,10 +520,9 @@ export async function POST(req: NextRequest) {
       { headers: CORS_HEADERS }
     );
   } catch (err: any) {
-    console.error('Payment initiation error:', err);
     return NextResponse.json(
       { error: err.message || 'Internal server error processing payment' },
-      { status: 500, headers: CORS_HEADERS }
+      { status: 500, headers: { ...CORS_HEADERS, ...SILENT_SECURITY_HEADERS } }
     );
   }
 }
@@ -532,21 +532,12 @@ export async function POST(req: NextRequest) {
  * Authenticated Admin endpoint to update default 7-day / 30-day prices or rotate PressoPay keys in the server database.
  */
 export async function PUT(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized PUT attempt to /api/payments.',
-      metadata: { method: 'PUT', path: '/api/payments' },
-    });
-    return NextResponse.json(
-      { error: 'Unauthorized: Admin login required' },
-      { status: 401, headers: CORS_HEADERS }
-    );
+    return await handleUnauthorizedAdminProbe(req, 'PUT /api/payments');
   }
 
   try {

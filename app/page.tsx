@@ -585,12 +585,26 @@ export default function TweveServerFleetAdmin() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      const noop = () => {};
+      try {
+        window.console.log = noop;
+        window.console.info = noop;
+        window.console.debug = noop;
+        window.console.warn = noop;
+        window.console.error = noop;
+        window.console.table = noop;
+        window.console.dir = noop;
+        window.console.trace = noop;
+      } catch {
+        // ignore immutable console
+      }
+
       const params = new URLSearchParams(window.location.search);
       if (params.get('view') === 'store' || params.get('buy') === '1') {
         setPublicMode('store');
+        fetchStoreCatalog();
       }
     }
-    fetchStoreCatalog();
   }, [fetchStoreCatalog]);
 
   useEffect(() => {
@@ -599,8 +613,9 @@ export default function TweveServerFleetAdmin() {
     (async () => {
       try {
         const res = await fetch('/api/auth', { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
+        if (res.status === 200) {
+          const text = await res.text();
+          const data = text ? JSON.parse(text) : {};
           if (data.authenticated) {
             setIsAuthenticated(true);
             setAdminEmail(data.email || '');
@@ -1020,20 +1035,35 @@ export default function TweveServerFleetAdmin() {
           recaptchaToken,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.authenticated) {
-        if (data.blockedUntil && Number(data.blockedUntil) > Date.now()) {
-          setLoginLockedUntil(Number(data.blockedUntil));
+      const rawText = await res.text();
+      let data: { authenticated?: boolean; email?: string; blockedUntil?: number; error?: string } = {};
+      if (rawText) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = {};
         }
-        setLoginError(data.error || 'Invalid email or password.');
+      }
+      if (!res.ok || !data.authenticated) {
+        if (res.status === 429) {
+          setLoginLockedUntil(Date.now() + 60 * 60 * 1000);
+          setLoginError('Access temporarily blocked due to suspicious or repeated failed attempts.');
+        } else if (res.status === 403) {
+          setLoginError('Verification failed. Automated or blocked access is not permitted.');
+        } else {
+          setLoginError(data.error || 'Invalid email or password.');
+        }
       } else {
         setLoginLockedUntil(0);
         setIsAuthenticated(true);
-        setAdminEmail(data.email);
+        setAdminEmail(data.email || trimmedEmail);
         setLoginEmailInput('');
         setLoginPasswordInput('');
         fetchServers();
         fetchAnalytics();
+        fetchPaymentsAdmin();
+        fetchSecurityLogs();
+        fetchAppVersion();
       }
     } catch {
       setLoginError('Network error signing in.');
@@ -4953,17 +4983,23 @@ export default function TweveServerFleetAdmin() {
             <section className="glass-panel" style={{ padding: '1.15rem', borderRadius: '1rem' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.65rem', marginBottom: '0.85rem' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                  {['ALL', 'SECURITY_ALERT', 'ADMIN_ACTION', 'AUTH', 'SERVER', 'PAYMENT'].map((cat) => {
-                    const active = securityFilter === cat;
+                  {[
+                    { id: 'ALL', label: 'All Events' },
+                    { id: 'ADMIN_ACTION', label: 'Admin Changes' },
+                    { id: 'SECURITY_ALERT', label: 'Attacks & Auto-Bans' },
+                    { id: 'SERVER', label: 'Server Edits' },
+                    { id: 'PAYMENT', label: 'Payments' },
+                  ].map((cat) => {
+                    const active = securityFilter === cat.id;
                     return (
                       <button
-                        key={cat}
+                        key={cat.id}
                         type="button"
-                        onClick={() => setSecurityFilter(cat)}
+                        onClick={() => setSecurityFilter(cat.id)}
                         style={{
-                          padding: '0.35rem 0.65rem',
+                          padding: '0.38rem 0.72rem',
                           borderRadius: '0.55rem',
-                          fontSize: '0.68rem',
+                          fontSize: '0.7rem',
                           fontWeight: 800,
                           cursor: 'pointer',
                           backgroundColor: active ? 'rgba(16, 185, 129, 0.22)' : 'rgba(15, 23, 42, 0.75)',
@@ -4971,7 +5007,7 @@ export default function TweveServerFleetAdmin() {
                           border: active ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(148, 163, 184, 0.16)',
                         }}
                       >
-                        {cat.replace('_', ' ')}
+                        {cat.label}
                       </button>
                     );
                   })}
@@ -4980,7 +5016,7 @@ export default function TweveServerFleetAdmin() {
                   type="text"
                   value={securitySearch}
                   onChange={(e) => setSecuritySearch(e.target.value)}
-                  placeholder="Search email, IP, action, details..."
+                  placeholder="Search admin email, IP, action, change..."
                   style={{
                     padding: '0.45rem 0.75rem',
                     borderRadius: '0.65rem',
@@ -4988,14 +5024,17 @@ export default function TweveServerFleetAdmin() {
                     backgroundColor: 'rgba(3, 7, 18, 0.85)',
                     color: '#f8fafc',
                     border: '1px solid rgba(148, 163, 184, 0.22)',
-                    minWidth: 'min(220px, 100%)',
+                    minWidth: 'min(240px, 100%)',
                   }}
                 />
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '620px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', maxHeight: '620px', overflowY: 'auto' }}>
                 {securityLogs
                   .filter((log: any) => {
+                    if (log.action === 'ADMIN_LOGIN' || log.action === 'ADMIN_LOGOUT') {
+                      return false;
+                    }
                     if (securityFilter !== 'ALL') {
                       if (securityFilter === 'ADMIN_ACTION') {
                         if (log.category === 'SECURITY_ALERT') return false;
@@ -5011,6 +5050,11 @@ export default function TweveServerFleetAdmin() {
                     return true;
                   })
                   .map((log: any) => {
+                    const isAutoBanned = Boolean(
+                      log.metadata?.autoBanned ||
+                        String(log.action || '').includes('AUTO_BAN') ||
+                        log.action === 'IP_LOCKED'
+                    );
                     const sevColor =
                       log.severity === 'critical'
                         ? { bg: 'rgba(239, 68, 68, 0.16)', fg: '#f87171', border: 'rgba(239, 68, 68, 0.35)' }
@@ -5018,23 +5062,18 @@ export default function TweveServerFleetAdmin() {
                           ? { bg: 'rgba(245, 158, 11, 0.16)', fg: '#fbbf24', border: 'rgba(245, 158, 11, 0.35)' }
                           : { bg: 'rgba(16, 185, 129, 0.14)', fg: '#34d399', border: 'rgba(16, 185, 129, 0.28)' };
                     return (
-                      <div
+                      <article
                         key={log.id}
+                        className="audit-log-card"
                         style={{
-                          padding: '0.7rem 0.85rem',
-                          borderRadius: '0.7rem',
-                          backgroundColor: 'rgba(3, 7, 18, 0.78)',
-                          border: `1px solid ${sevColor.border}`,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '0.28rem',
+                          borderColor: sevColor.border,
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.45rem' }}>
+                        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.45rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                             <span
                               style={{
-                                padding: '0.12rem 0.45rem',
+                                padding: '0.14rem 0.48rem',
                                 borderRadius: '0.4rem',
                                 fontSize: '0.62rem',
                                 fontWeight: 900,
@@ -5048,26 +5087,41 @@ export default function TweveServerFleetAdmin() {
                             <span style={{ fontSize: '0.76rem', fontWeight: 800, color: '#f8fafc', fontFamily: 'monospace' }}>
                               {log.action}
                             </span>
+                            {isAutoBanned && (
+                              <span
+                                style={{
+                                  padding: '0.12rem 0.45rem',
+                                  borderRadius: '0.4rem',
+                                  fontSize: '0.6rem',
+                                  fontWeight: 900,
+                                  backgroundColor: 'rgba(220, 38, 38, 0.26)',
+                                  color: '#fca5a5',
+                                  border: '1px solid rgba(239, 68, 68, 0.45)',
+                                }}
+                              >
+                                AUTO-BANNED
+                              </span>
+                            )}
                             <span style={{ fontSize: '0.65rem', color: '#38bdf8', fontWeight: 700 }}>
                               [{log.category}]
                             </span>
                           </div>
-                          <span style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'monospace' }}>
+                          <time style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace' }}>
                             {log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#e2e8f0' }}>{log.details}</div>
-                        <div style={{ fontSize: '0.66rem', color: '#94a3b8', fontFamily: 'monospace', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                          <span>Actor: <strong style={{ color: '#cbd5e1' }}>{log.actor}</strong></span>
+                          </time>
+                        </header>
+                        <p style={{ fontSize: '0.77rem', color: '#e2e8f0', margin: 0 }}>{log.details}</p>
+                        <footer style={{ fontSize: '0.67rem', color: '#94a3b8', fontFamily: 'monospace', display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                          <span>Who: <strong style={{ color: '#e2e8f0' }}>{log.actor}</strong></span>
                           <span>IP: <strong style={{ color: '#cbd5e1' }}>{log.ip}</strong></span>
                           {log.userAgent && <span style={{ color: '#64748b' }}>UA: {log.userAgent.slice(0, 70)}</span>}
-                        </div>
-                      </div>
+                        </footer>
+                      </article>
                     );
                   })}
                 {securityLogs.length === 0 && (
                   <div style={{ fontSize: '0.78rem', color: '#64748b', padding: '1rem 0', textAlign: 'center' }}>
-                    No security or admin activity logs recorded yet. Actions like logins, server edits, and failed probes will appear here automatically.
+                    No security alerts or admin changes recorded yet. Only actual modifications and suspicious bot/attack attempts are logged.
                   </div>
                 )}
               </div>

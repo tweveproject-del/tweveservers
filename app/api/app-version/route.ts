@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest, getFirebaseAccessToken, FIREBASE_RTDB_URL } from '../../lib/auth';
 import { recordSecurityAuditLog } from '../../lib/audit';
+import {
+  enforceApiSecurity,
+  handleUnauthorizedAdminProbe,
+  SILENT_SECURITY_HEADERS,
+} from '../../lib/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,18 +39,12 @@ const DEFAULT_VERSION_CONFIG: AppVersionConfig = {
 };
 
 export async function GET(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized GET attempt to /api/app-version.',
-      metadata: { method: 'GET', path: '/api/app-version' },
-    });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'GET /api/app-version');
   }
 
   try {
@@ -71,18 +70,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized PUT attempt to /api/app-version.',
-      metadata: { method: 'PUT', path: '/api/app-version' },
-    });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'PUT /api/app-version');
   }
 
   try {

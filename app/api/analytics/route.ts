@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminRequest, getFirebaseAccessToken, FIREBASE_RTDB_URL } from '../../lib/auth';
+import {
+  enforceApiSecurity,
+  handleUnauthorizedAdminProbe,
+  SILENT_SECURITY_HEADERS,
+} from '../../lib/security';
 
 export interface TelemetryDeviceRecord {
   deviceId: string;
@@ -132,9 +137,12 @@ async function saveTelemetryState(state: PersistedTelemetryState): Promise<void>
 }
 
 export async function GET(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'GET /api/analytics');
   }
 
   const now = Date.now();
@@ -294,6 +302,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'public_api' });
+  if (blocked) return blocked;
+
   try {
     const body = await req.json();
     const {

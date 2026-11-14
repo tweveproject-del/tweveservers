@@ -2310,16 +2310,30 @@ select option {
 
 /* Server Row Card in Fleet Table */
 .server-fleet-row {
-  background: linear-gradient(145deg, rgba(6, 11, 22, 0.95) 0%, rgba(9, 16, 32, 0.92) 100%) !important;
-  border: 1px solid rgba(56, 189, 248, 0.18) !important;
+  container-type: inline-size;
+  background: linear-gradient(145deg, rgba(6, 11, 22, 0.96) 0%, rgba(10, 18, 36, 0.94) 100%) !important;
+  border: 1px solid rgba(56, 189, 248, 0.2) !important;
   border-radius: 1rem !important;
   padding: 1rem 1.2rem !important;
-  transition: all 0.2s ease !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 22px -12px rgba(0, 0, 0, 0.72) !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
 }
 
 .server-fleet-row:hover {
-  border-color: rgba(56, 189, 248, 0.45) !important;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6) !important;
+  border-color: rgba(56, 189, 248, 0.48) !important;
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.14), 0 10px 26px -10px rgba(0, 0, 0, 0.85) !important;
+}
+
+.audit-log-card {
+  container-type: inline-size;
+  padding: 0.78rem 0.95rem;
+  border-radius: 0.8rem;
+  background: linear-gradient(145deg, rgba(3, 7, 18, 0.9) 0%, rgba(8, 14, 28, 0.85) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 /* Audit Table */

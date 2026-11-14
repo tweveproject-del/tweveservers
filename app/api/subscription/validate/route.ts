@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSubscriptionByKey } from '../../../lib/pressopay';
+import { enforceApiSecurity } from '../../../lib/security';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -12,6 +13,9 @@ export async function OPTIONS() {
 }
 
 export async function GET(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'public_api' });
+  if (blocked) return blocked;
+
   const apiKey =
     req.headers.get('x-api-key') ||
     new URL(req.url).searchParams.get('key') ||

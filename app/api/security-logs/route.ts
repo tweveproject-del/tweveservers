@@ -6,22 +6,21 @@ import {
   removeSecurityBan,
   recordSecurityAuditLog,
 } from '../../lib/audit';
+import {
+  enforceApiSecurity,
+  handleUnauthorizedAdminProbe,
+  SILENT_SECURITY_HEADERS,
+} from '../../lib/security';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized attempt to read security & admin audit logs (/api/security-logs).',
-      metadata: { method: 'GET', path: '/api/security-logs' },
-    });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'GET /api/security-logs');
   }
 
   const limitParam = Number(req.nextUrl.searchParams.get('limit') || 250);
@@ -36,36 +35,36 @@ export async function GET(req: NextRequest) {
   const warningCount = logs.filter((l) => l.severity === 'warning').length;
   const activeBansCount = bans.filter((b) => b.isActive).length;
   const adminActionsCount = logs.filter(
-    (l) => l.category !== 'SECURITY_ALERT'
+    (l) =>
+      l.category !== 'SECURITY_ALERT' &&
+      l.action !== 'ADMIN_LOGIN' &&
+      l.action !== 'ADMIN_LOGOUT'
   ).length;
 
-  return NextResponse.json({
-    ok: true,
-    logs,
-    bans,
-    stats: {
-      totalLogs: logs.length,
-      criticalCount,
-      warningCount,
-      activeBansCount,
-      adminActionsCount,
+  return NextResponse.json(
+    {
+      ok: true,
+      logs,
+      bans,
+      stats: {
+        totalLogs: logs.length,
+        criticalCount,
+        warningCount,
+        activeBansCount,
+        adminActionsCount,
+      },
     },
-  });
+    { headers: SILENT_SECURITY_HEADERS }
+  );
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized POST attempt to /api/security-logs.',
-      metadata: { method: 'POST', path: '/api/security-logs' },
-    });
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'POST /api/security-logs');
   }
 
   try {

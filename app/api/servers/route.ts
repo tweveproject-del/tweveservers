@@ -9,6 +9,11 @@ import {
 } from '../../lib/auth';
 import { recordSecurityAuditLog } from '../../lib/audit';
 import {
+  enforceApiSecurity,
+  handleUnauthorizedAdminProbe,
+  SILENT_SECURITY_HEADERS,
+} from '../../lib/security';
+import {
   getPaymentGatewayConfig,
   getServerPackages,
   getSubscriptionByKey,
@@ -226,12 +231,18 @@ async function writeManifest(manifest: { servers: VpnServerItem[]; announcement?
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const format = searchParams.get('format');
+  const isAdminFormat = format === 'admin' || format === 'raw_apk';
+
+  const blocked = await enforceApiSecurity(req, {
+    scope: isAdminFormat ? 'browser_only' : 'public_api',
+  });
+  if (blocked) return blocked;
 
   // Protect raw admin & raw_apk formats: require authenticated admin session
-  if (format === 'admin' || format === 'raw_apk') {
+  if (isAdminFormat) {
     const auth = await verifyAdminRequest(req);
     if (!auth.valid) {
-      return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+      return await handleUnauthorizedAdminProbe(req, `GET /api/servers?format=${format}`);
     }
   }
 
@@ -239,7 +250,7 @@ export async function GET(req: NextRequest) {
 
   // If format=admin, return raw server objects for the authenticated dashboard UI only
   if (format === 'admin') {
-    return NextResponse.json(manifest);
+    return NextResponse.json(manifest, { headers: SILENT_SECURITY_HEADERS });
   }
 
   // If format=store, return public store catalog of servers with package durations & TZS prices
@@ -316,18 +327,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized POST attempt to /api/servers.',
-      metadata: { method: 'POST', path: '/api/servers' },
-    });
-    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'POST /api/servers');
   }
   try {
     const body = await req.json();
@@ -451,31 +456,33 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized PUT attempt to /api/servers.',
-      metadata: { method: 'PUT', path: '/api/servers' },
-    });
-    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'PUT /api/servers');
   }
   try {
     const body = await req.json();
     const manifest = await readManifest();
 
-    if (body.announcement !== undefined) {
+    const prevAnnouncement = String(manifest.announcement || '');
+    const announcementChanged =
+      body.announcement !== undefined && String(body.announcement) !== prevAnnouncement;
+
+    if (announcementChanged) {
       manifest.announcement = body.announcement;
     }
+
+    let updatedServerName = '';
+    const changedFields: string[] = [];
 
     if (body.id) {
       const idx = manifest.servers.findIndex((s) => s.id === body.id);
       if (idx >= 0) {
         const current = manifest.servers[idx];
+        updatedServerName = String(body.name || current.name || body.id);
         const nextServer: VpnServerItem = {
           ...current,
           ...body,
@@ -492,12 +499,31 @@ export async function PUT(req: NextRequest) {
           nextServer.expireDurationUnit = 'never';
           nextServer.isExpired = false;
         }
+
+        for (const key of Object.keys(body)) {
+          if (key === 'id' || key === 'updatedAt' || key === 'announcement') continue;
+          const prevVal = (current as unknown as Record<string, unknown>)[key] ?? null;
+          const nextVal = (nextServer as unknown as Record<string, unknown>)[key] ?? null;
+          if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
+            changedFields.push(
+              key === 'isActive'
+                ? `isActive=${String(nextVal)}`
+                : key === 'isLocked'
+                  ? `isLocked=${String(nextVal)}`
+                  : key
+            );
+          }
+        }
+
         manifest.servers[idx] = nextServer;
       }
     }
 
-    await writeManifest(manifest);
-    if (body.announcement !== undefined) {
+    if (announcementChanged || changedFields.length > 0) {
+      await writeManifest(manifest);
+    }
+
+    if (announcementChanged) {
       await recordSecurityAuditLog({
         req,
         category: 'ADMIN_ACTION',
@@ -507,36 +533,30 @@ export async function PUT(req: NextRequest) {
         details: `Updated global announcement (${String(body.announcement).slice(0, 80) || 'cleared'}).`,
       });
     }
-    if (body.id) {
+    if (body.id && changedFields.length > 0) {
       await recordSecurityAuditLog({
         req,
         category: 'SERVER',
         severity: 'info',
         action: 'SERVER_UPDATE',
         actor: auth.email || 'admin',
-        details: `Updated server ${body.id}${body.isActive !== undefined ? ` (isActive=${body.isActive})` : ''}.`,
-        metadata: { serverId: body.id },
+        details: `Updated server "${updatedServerName}" (${changedFields.slice(0, 6).join(', ')}).`,
+        metadata: { serverId: body.id, changedFields },
       });
     }
-    return NextResponse.json({ success: true, manifest });
+    return NextResponse.json({ success: true, manifest }, { headers: SILENT_SECURITY_HEADERS });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
+  const blocked = await enforceApiSecurity(req, { scope: 'browser_only' });
+  if (blocked) return blocked;
+
   const auth = await verifyAdminRequest(req);
   if (!auth.valid) {
-    await recordSecurityAuditLog({
-      req,
-      category: 'SECURITY_ALERT',
-      severity: 'critical',
-      action: 'UNAUTHORIZED_ACCESS',
-      actor: 'anonymous',
-      details: 'Unauthorized DELETE attempt to /api/servers.',
-      metadata: { method: 'DELETE', path: '/api/servers' },
-    });
-    return NextResponse.json({ error: 'Unauthorized: Admin login required' }, { status: 401 });
+    return await handleUnauthorizedAdminProbe(req, 'DELETE /api/servers');
   }
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
